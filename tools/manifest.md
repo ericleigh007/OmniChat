@@ -56,6 +56,16 @@ Always check this file before writing a new script — a tool may already exist.
 | `test_vad_integration.py` | Real Silero-VAD tests — model loading, speech detection, conversation flow, Gradio mic simulation, audio normalization |
 | `test_demo_smoke.py` | Pytest wrapper — runs full demo in headless mode as regression test |
 
+## Benchmarks (`benchmarks/`)
+
+| Script | Description |
+|--------|-------------|
+| `run_benchmark.py` | Orchestrator — spawns one subprocess per quantization level, then generates comparison report |
+| `run_single_quant.py` | Worker — loads model at specified quantization, runs all prompts, saves raw (pre-leveling) text and WAV outputs |
+| `analyze_results.py` | Post-processor — computes audio metrics (RMS, spectral centroid, ZCR), generates mel spectrogram comparisons, writes markdown report |
+| `prompts.py` | Fixed prompt definitions for benchmark reproducibility (echo + free prompts) |
+| `benchmark.bat` | Windows launcher for the benchmark suite |
+
 ## Demos (`demos/`)
 
 | Script | Description |

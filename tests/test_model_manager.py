@@ -567,8 +567,22 @@ class TestGetModelQuantizationBranching:
             assert "quantization_config" in call_args.kwargs
             assert call_args.kwargs["device_map"] == "auto"
 
-            # BitsAndBytesConfig called with load_in_8bit=True
-            MockBNBConfig.assert_called_once_with(load_in_8bit=True)
+            # BitsAndBytesConfig called with load_in_8bit and skip_modules.
+            # All non-LLM modules are skipped to avoid SCB AttributeError from
+            # weight_norm layers in TTS and to preserve bf16 precision for
+            # audio/vision modules (same skip list used for int4 NF4).
+            MockBNBConfig.assert_called_once_with(
+                load_in_8bit=True,
+                llm_int8_skip_modules=[
+                    "lm_head",
+                    "apm",
+                    "tts",
+                    "vpm",
+                    "resampler",
+                    "audio_projection_layer",
+                    "audio_avg_pooler",
+                ],
+            )
 
             # Should NOT call .cuda() (BNB handles device placement)
             mock_model.eval.assert_called_once()
@@ -576,8 +590,8 @@ class TestGetModelQuantizationBranching:
 
     @patch("tools.model.model_manager.torch")
     @patch("tools.model.model_manager.np")
-    def test_int4_uses_awq_checkpoint(self, mock_np, mock_torch):
-        """mode='int4' should use the AWQ model name and call .cuda()."""
+    def test_int4_uses_bnb_nf4(self, mock_np, mock_torch):
+        """mode='int4' should use BNB NF4 config on the base model (not AWQ checkpoint)."""
         import tools.model.model_manager as mm
         mm._quantization = "int4"
         self._setup_mock_torch(mock_torch)
@@ -586,7 +600,8 @@ class TestGetModelQuantizationBranching:
         mock_tokenizer = MagicMock()
 
         with patch("transformers.AutoModel") as MockAutoModel, \
-             patch("transformers.AutoTokenizer") as MockAutoTokenizer:
+             patch("transformers.AutoTokenizer") as MockAutoTokenizer, \
+             patch("transformers.BitsAndBytesConfig") as MockBNBConfig:
             MockAutoModel.from_pretrained.return_value = mock_model
             MockAutoTokenizer.from_pretrained.return_value = mock_tokenizer
             mock_model.eval.return_value = mock_model
@@ -594,14 +609,27 @@ class TestGetModelQuantizationBranching:
 
             mm.get_model()
 
-            # Verify model name is the AWQ checkpoint
+            # Should use the BASE model (not AWQ checkpoint)
             call_args = MockAutoModel.from_pretrained.call_args
-            assert call_args.args[0] == "openbmb/MiniCPM-o-4_5-awq"
+            assert call_args.args[0] == "openbmb/MiniCPM-o-4_5"
 
-            # No quantization_config (AWQ is pre-quantized)
-            assert "quantization_config" not in call_args.kwargs
-            assert "device_map" not in call_args.kwargs
+            # Should have quantization_config and device_map
+            assert "quantization_config" in call_args.kwargs
+            assert call_args.kwargs["device_map"] == "auto"
 
-            # Should call .cuda() (AWQ loads like bf16)
+            # BitsAndBytesConfig should use NF4 with double quantization
+            MockBNBConfig.assert_called_once()
+            bnb_call = MockBNBConfig.call_args
+            assert bnb_call.kwargs["load_in_4bit"] is True
+            assert bnb_call.kwargs["bnb_4bit_quant_type"] == "nf4"
+            assert bnb_call.kwargs["bnb_4bit_use_double_quant"] is True
+
+            # Same skip list as int8 — all non-LLM modules
+            skip = bnb_call.kwargs["llm_int8_skip_modules"]
+            for mod in ["apm", "tts", "vpm", "resampler",
+                        "audio_projection_layer", "audio_avg_pooler", "lm_head"]:
+                assert mod in skip, f"{mod} should be in skip_modules"
+
+            # Should NOT call .cuda() (BNB handles device placement)
             mock_model.eval.assert_called_once()
-            mock_model.cuda.assert_called_once()
+            mock_model.cuda.assert_not_called()

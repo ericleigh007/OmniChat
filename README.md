@@ -41,7 +41,7 @@ The model loads in bf16 by default (~19 GB VRAM). Quantization makes it accessib
 |------|------|--------|---------------|
 | `none` (default) | ~19 GB | bf16 full precision | Baseline |
 | `int8` | ~10-12 GB | bitsandbytes 8-bit | [Essentially lossless](https://arxiv.org/html/2411.02355v3) (~0.04% degradation) |
-| `int4` | ~11 GB | AWQ pre-quantized | [~1.6% degradation](https://research.aimultiple.com/llm-quantization/) on text benchmarks |
+| `int4` | ~11 GB | bitsandbytes NF4 | [~1.6% degradation](https://research.aimultiple.com/llm-quantization/) on text benchmarks |
 
 ```bash
 # Full precision (default, needs 20+ GB VRAM)
@@ -60,9 +60,14 @@ model:
   quantization: "int8"   # none, int8, int4
 ```
 
-INT8 uses [bitsandbytes](https://github.com/bitsandbytes-foundation/bitsandbytes) on the same model checkpoint. INT4 uses OpenBMB's official [AWQ checkpoint](https://huggingface.co/openbmb/MiniCPM-o-4_5-awq) (~40 GB download on first use).
+Both INT8 and INT4 use [bitsandbytes](https://github.com/bitsandbytes-foundation/bitsandbytes) on the same base model checkpoint — no separate download needed. INT4 uses NF4 (Normal Float 4) with double quantization.
 
 **Research:** ["Give Me BF16 or Give Me Death?"](https://arxiv.org/html/2411.02355v3) (ACL 2025) found FP8/INT8 quantization essentially lossless across the Llama-3.1 family. See also [LLM Quantization: BF16 vs FP8 vs INT4](https://research.aimultiple.com/llm-quantization/) for broader benchmarks.
+
+**Important caveats:**
+- All published quality benchmarks are **text-only** (MMLU-Pro, etc.). Audio and speech generation quality under quantization has not been formally benchmarked by anyone. Audio tokens represent spectral features where numerical errors may compound audibly.
+- **INT8/INT4:** Only the LLM transformer layers are quantized. Audio (apm, tts), vision (vpm), resampler, and projection modules are kept in bf16 to preserve multimodal quality. If audio output sounds garbled under quantization, fall back to bf16.
+- **If in doubt, use bf16.** Quantization is a VRAM tradeoff, not a free lunch. Text chat will work fine in all modes; audio/speech is the risk area.
 
 ## Quick Start
 

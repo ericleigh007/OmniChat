@@ -42,7 +42,7 @@ Quantization works the same way:
 launch_rt.bat --quantization int8   # ~10-12 GB VRAM
 launch_rt.bat --quantization int4   # ~11 GB VRAM
 ```
-See [README.md](README.md#quantization) for details and research citations.
+See [README.md](README.md#quantization) for details, research citations, and important caveats about audio quality under quantization (text chat works fine; audio/speech output is untested and may need adjustments).
 
 ## Features
 

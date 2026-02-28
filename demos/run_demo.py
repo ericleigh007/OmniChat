@@ -474,6 +474,78 @@ def act_6_multi_turn(ctx: DemoContext) -> ActResult:
     return ActResult(6, title, passed, detail=detail)
 
 
+# ── ACT 7: Samantha Voice (Scarlett Johansson / "Her") ─────────────────────
+
+def act_7_samantha_voice(ctx: DemoContext) -> ActResult:
+    mode = "Streaming" if ctx.stream else "File-based"
+    banner(7, f"Samantha Voice ({mode})")
+    _speak_narrator(
+        "Act 7: Samantha voice. "
+        "Using Scarlett Johansson's Samantha character from the movie Her "
+        "to explain the sky.", ctx,
+    )
+
+    import soundfile as sf
+
+    voice_path = Path(__file__).parent.parent / "voices" / "samantha_johansson.wav"
+    if not voice_path.exists():
+        narrate(f"Voice file not found: {voice_path}")
+        title = "Samantha Voice"
+        pass_fail(7, title, False, soft_fail=True, detail="Voice file missing")
+        return ActResult(7, title, False, soft_fail=True, detail="Voice file missing")
+
+    voice_ref, _ = sf.read(str(voice_path), dtype="float32")
+    narrate(f"Samantha voice loaded: {len(voice_ref)} samples")
+
+    questions = [
+        (
+            "Please respond in English. "
+            "In two or three sentences, explain why the sky is blue during the day.",
+            "act7_sky_blue.wav",
+        ),
+        (
+            "Please respond in English. "
+            "In two or three sentences, explain why the sky is black at night.",
+            "act7_sky_black.wav",
+        ),
+    ]
+
+    audio_count = 0
+    for prompt, filename in questions:
+        out_wav = str(Path(ctx.output_dir) / filename)
+        narrate(f"Q: {prompt}")
+
+        try:
+            result = _chat_with_audio(
+                messages=[{"role": "user", "content": [prompt]}],
+                ctx=ctx,
+                output_path=out_wav,
+                voice_ref=voice_ref,
+            )
+
+            text = result["text"]
+            audio = result.get("audio")
+            sr = result.get("sample_rate", 24000)
+
+            show_result("Text", text[:200] if text else "(no text)")
+
+            if audio is not None:
+                show_result("Audio", f"{len(audio)} samples, {sr}Hz, {len(audio)/sr:.1f}s")
+                audio_count += 1
+            else:
+                show_result("Audio", "No audio generated")
+
+        except Exception as e:
+            narrate(f"Failed: {e}")
+
+    passed = audio_count == len(questions)
+    detail = f"{audio_count}/{len(questions)} responses with audio"
+
+    title = f"Samantha Voice ({mode})"
+    pass_fail(7, title, passed, soft_fail=not passed, detail=detail)
+    return ActResult(7, title, passed, soft_fail=not passed, detail=detail)
+
+
 # ── Orchestration ────────────────────────────────────────────────────────────
 
 ALL_ACTS = {
@@ -483,6 +555,7 @@ ALL_ACTS = {
     4: act_4_vision_image,
     5: act_5_vision_ocr,
     6: act_6_multi_turn,
+    7: act_7_samantha_voice,
 }
 
 

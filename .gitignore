@@ -26,6 +26,7 @@ Thumbs.db
 # Outputs and temp files
 outputs/
 demo_outputs/
+benchmark_outputs/
 .tmp/
 
 # Pytest

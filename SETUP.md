@@ -198,6 +198,12 @@ See the full [settings.yaml](args/settings.yaml) for all options including audio
 - Use `--quantization int4` for GPUs under 12 GB (~11 GB usage)
 - Or set `model.quantization` in `args/settings.yaml`
 
+### Audio sounds garbled or broken with quantization
+- Only the LLM transformer layers are quantized — audio, vision, TTS, and projection modules are kept in bf16 to preserve multimodal quality
+- Both INT8 and INT4 use bitsandbytes on the same base model (no separate checkpoint)
+- **Text chat works fine** in all quantization modes — audio/speech is the risk area
+- When in doubt, use `--quantization none` (the default, bf16)
+
 ### Model downloads are slow
 - The model is ~40 GB. First download takes time.
 - Downloads are cached at `~/.cache/huggingface/hub/`. Subsequent runs are fast.
