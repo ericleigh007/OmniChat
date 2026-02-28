@@ -1,0 +1,15 @@
+transformers==4.51.0
+accelerate
+torch>=2.3.0,<=2.8.0
+torchaudio<=2.8.0
+minicpmo-utils[all]>=1.0.5
+librosa
+soundfile
+gradio
+openpyxl
+Pillow
+pyyaml
+sounddevice
+PySide6>=6.6
+pytest
+pytest-qt

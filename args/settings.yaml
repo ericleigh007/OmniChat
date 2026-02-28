@@ -1,0 +1,92 @@
+# OmniChat settings — behavior configuration
+# Edit these to change how the assistant behaves.
+
+model:
+  name: "openbmb/MiniCPM-o-4_5"
+  dtype: "bfloat16"
+  device: "cuda"
+
+audio:
+  input_sample_rate: 16000
+  output_sample_rate: 24000
+  default_voice: null             # null = model's built-in voice; or filename in voices/
+  voices_dir: "voices"            # path to voice WAV files (relative to project root, or absolute)
+  voice_sample_length_s: 5.0      # seconds of voice clip sent to model for cloning (1-30)
+                                   # Shorter = less content for model to echo back.
+                                   # 3-5s is sufficient for timbre cloning.
+
+  # ── Streaming ──
+  streaming:
+    enabled: true                   # Audio plays as it generates (vs wait for full response)
+
+  # ── Continuous chat mode ──
+  # Hands-free conversation with VAD-based turn detection.
+  chat_mode:
+    silence_threshold_s: 1.5        # seconds of silence = end of turn
+    vad_threshold: 0.5              # Silero-VAD confidence threshold (0-1)
+    echo_cooldown_s: 1.5            # seconds of elevated VAD threshold after model finishes
+    antivox_boost: 0.25             # how much to raise VAD threshold during cooldown (0.25 = 0.50 -> 0.75)
+    barge_in_enabled: true          # let user interrupt model by speaking
+    barge_in_threshold: 0.75        # VAD threshold during model speech (higher = only strong speech)
+    barge_in_chunks: 3              # consecutive speech chunks needed to confirm interruption
+    wake_word: "omnichat"           # keyword to wake from dormant (future)
+    dormant_timeout_s: 30           # idle seconds before going dormant (future)
+
+  # ── Audio leveling ──
+  # Two-stage processing:
+  #   1. Voice refs (input)  — static RMS normalizer (one gain for the clip)
+  #   2. Output audio        — windowed RMS compressor with attack/release
+  # All dB values are dBFS (0 = full scale).
+  leveling:
+    enabled: true                 # false = bypass all normalization
+
+    # ── Voice reference input (static normalizer) ──
+    # Short clips fed to the vocoder for cloning.  One gain value per clip.
+    ref_target_dbfs: -26.0        # target RMS (-26 ≈ 0.05 linear)
+    ref_max_gain_db: 20.0         # max boost for quiet refs (20 dB = 10x)
+
+    # ── Output compressor ──
+    # Windowed RMS compressor with envelope follower.
+    # Controls how the generated TTS audio is leveled before playback.
+    #
+    # Curve:
+    #   - Below (threshold - knee/2): signal passes through at 1:1
+    #   - Within the knee: quadratic blend from 1:1 to the compression ratio
+    #   - Above (threshold + knee/2): full ratio compression
+    #
+    # Envelope:
+    #   - Attack:  how fast gain REDUCES when signal exceeds threshold
+    #   - Release: how fast gain RECOVERS when signal drops below threshold
+    #   Shorter attack = tighter control of transients (but can sound "pumpy")
+    #   Longer release  = smoother, more transparent leveling
+
+    output_threshold_dbfs: -20.0  # level where compression engages (-20 ≈ podcast level)
+    output_ratio: 3.0             # compression slope (3:1 = gentle)
+    output_attack_ms: 15.0        # gain reduction speed (ms)
+    output_release_ms: 150.0      # gain recovery speed (ms)
+    output_knee_db: 6.0           # soft knee width in dB (0 = hard knee)
+    output_makeup_db: 4.0         # post-compression boost (dB)
+    output_max_gain_db: 20.0      # safety cap on total gain
+
+    # ── Peak limiter (applies to both ref and output) ──
+    peak_ceiling_dbfs: -0.1       # hard ceiling (-0.1 ≈ 0.989 linear)
+
+voice_commands:
+  enabled: true
+  fuzzy_threshold: 0.6            # difflib cutoff for fuzzy matching
+
+inference:
+  temperature: 0.7
+  max_new_tokens: 2048
+  do_sample: true
+  repetition_penalty: 1.5          # penalize repeating tokens (1.0=off, higher=stronger)
+                                   # 1.5 helps prevent echoing voice reference content
+
+output:
+  default_format: "auto"          # auto, markdown, text, excel
+  save_dir: "outputs"
+
+server:
+  host: "localhost"
+  port: 7860
+  share: false                    # Set true for public Gradio URL

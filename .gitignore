@@ -1,0 +1,35 @@
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Voice samples — not shipped (may contain copyrighted audio)
+# Users supply their own via voices_dir setting or --voices-dir flag
+voices/*.wav
+voices/*.mp3
+voices/*.flac
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outputs and temp files
+outputs/
+demo_outputs/
+.tmp/
+
+# Pytest
+.pytest_cache/
+
+# Logs
+*.log
