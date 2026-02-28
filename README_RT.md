@@ -4,6 +4,8 @@ Native PySide6 desktop client for OmniChat. Plays audio directly via sounddevice
 
 Same model, same tools, same settings — just faster audio and a native UI.
 
+![OmniChat RT Desktop App](media/OmniChat-RT.png)
+
 ## Why a Desktop App?
 
 Gradio's streaming audio pipeline adds 4-8 seconds of latency:
@@ -80,10 +82,11 @@ Both run on a background thread to keep the UI responsive. Results can be saved 
 
 ### Voice Cloning
 
-Voice samples are not included in the repo. Supply your own:
+Voice samples are not included in the repo. Supply your own — **any common audio or video format works**, no pre-conversion needed:
 
-- **From WAV file:** Settings tab > Voice Management > name the voice, click "Add from WAV", pick a file (WAV, MP3, or FLAC — auto-resampled to 16kHz mono)
-- **From a directory:** Drop 16kHz mono WAVs into your voices directory (default `voices/`, configurable via `audio.voices_dir` in settings or `--voices-dir` flag)
+- **From audio file:** Settings tab > Voice Management > name the voice, click "Add from WAV", pick a file. Accepts WAV, MP3, OGG, FLAC, M4A, and anything librosa can decode. Auto-resampled to 16kHz mono.
+- **From video file:** Settings tab > "From Video Clip" — extracts the audio track. Accepts MP4, AVI, MOV, MKV, WebM, and anything ffmpeg can decode. Set start time and duration to select the right segment.
+- **From a directory:** Drop voice files into your voices directory (default `voices/`, configurable via `audio.voices_dir` in settings or `--voices-dir` flag).
 
 Delete voices from the Settings tab dropdown. Use 3-5 second clips for best results — longer clips increase parroting of the sample's content.
 

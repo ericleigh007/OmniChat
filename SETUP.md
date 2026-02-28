@@ -99,14 +99,15 @@ The patched files are in the `ericleigh007/gradio` fork (branch `fix/streaming-a
 
 Voice samples are not included in the repo. To use voice cloning:
 
-1. Record or find a 3-5 second WAV clip of the voice you want (clear speech, minimal background noise)
-2. Convert to 16 kHz mono WAV (the app auto-resamples if needed, but 16kHz is ideal)
-3. Place it in the `voices/` directory (or configure a different path — see below)
+1. Find a 3-5 second clip of the voice you want (clear speech, minimal background noise)
+2. **Any common audio or video format works** — WAV, MP3, OGG, FLAC, M4A, MP4, AVI, MOV, MKV, etc. The app auto-converts everything to 16 kHz mono WAV internally.
+3. Add it via the Settings tab (upload audio, record from mic, or extract from a video clip) or drop files into the `voices/` directory
 
 ```bash
-# Name files as: firstname_lastname.wav
+# Drop files into the voices directory — any audio format works:
 voices/morgan_freeman.wav
-voices/custom_voice.wav
+voices/custom_voice.mp3
+voices/samantha.flac
 ```
 
 Or configure a custom voices directory:
@@ -122,7 +123,7 @@ python main.py --voices-dir /path/to/my/voices
 python rt_main.py --voices-dir /path/to/my/voices
 ```
 
-You can also upload voices through the Settings tab in either app.
+You can also upload voices through the Settings tab in either app — including extracting a voice from a video file by specifying start time and duration.
 
 ## Step 8: Launch
 

@@ -13,6 +13,8 @@ Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for th
 
 ---
 
+![OmniChat Gradio Web UI](media/OmniChat-gradio.png)
+
 *This README covers the Gradio web UI. For the desktop app, see [README_RT.md](README_RT.md). For step-by-step setup, see [SETUP.md](SETUP.md).*
 
 ## What It Does
@@ -103,12 +105,22 @@ Fuzzy matching finds the closest voice name, so "freeman" or "morgan" both work.
 
 ### Voice Cloning
 
-Place a 3–5 second WAV (16 kHz mono) in your voices directory, or upload one through the Settings tab. The model clones the voice natively — no external TTS engine needed. Longer clips are truncated to the configured sample length (default 5s) before sending to the model — shorter clips reduce parroting of the sample's spoken content.
+The model clones voices natively — no external TTS engine needed. Use 3–5 second clips for best results; longer clips are truncated to the configured sample length (default 5s) before sending to the model. Shorter clips reduce parroting of the sample's spoken content.
+
+**Accepted formats** — you don't need to pre-convert anything:
+
+| Source | Formats | How |
+|--------|---------|-----|
+| **Audio file** | WAV, MP3, OGG, FLAC, M4A, and anything [librosa](https://librosa.org/) can decode | Upload via Settings tab or drop into voices directory |
+| **Video file** | MP4, AVI, MOV, MKV, WebM, and anything [ffmpeg](https://ffmpeg.org/) can decode | Settings tab > "From Video Clip" — set start time and duration |
+| **Microphone** | Direct recording | Settings tab > record from mic |
+
+All inputs are automatically converted to 16 kHz mono WAV (resampled, mixed to mono, saved as WAV). No manual conversion needed.
 
 Voice samples are **not included in the repo** (copyright concerns). Supply your own via:
 - The `audio.voices_dir` setting in `args/settings.yaml` (default: `voices/`)
 - The `--voices-dir /path/to/voices` command-line flag
-- Or upload directly through the Settings tab
+- Upload through the Settings tab (audio file, video clip, or mic recording)
 
 ### Vision
 
@@ -276,6 +288,7 @@ OmniChat/
 ├── launch_rt.bat              # Launch PySide6 desktop app (Windows)
 ├── args/
 │   └── settings.yaml          # All configuration (shared by both apps)
+├── media/                     # Screenshots for READMEs
 ├── voices/                    # Voice reference WAVs (16 kHz mono)
 ├── tools/
 │   ├── manifest.md            # Tool index
