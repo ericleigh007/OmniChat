@@ -148,6 +148,12 @@ A splash screen shows while the model loads, then the main window opens.
 
 **Only one app can run at a time** — they share the same GPU model singleton.
 
+**Quantization:** If your GPU has less than 20 GB VRAM, add `--quantization int8` or `--quantization int4`:
+```bash
+launch.bat --quantization int8
+launch_rt.bat --quantization int4
+```
+
 ## Step 9: Verify with Tests
 
 ```bash

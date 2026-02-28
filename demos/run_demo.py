@@ -520,7 +520,23 @@ def main():
     parser.add_argument("--strict", action="store_true", help="Exit on first hard failure")
     parser.add_argument("--acts", default=None, help="Comma-separated act numbers (e.g. 1,3,5)")
     parser.add_argument("--output-dir", default=None, help="Custom output directory")
+    parser.add_argument("--voices-dir", default=None, help="Path to voice WAV samples directory")
+    parser.add_argument("--quantization", default=None, choices=["none", "int8", "int4"],
+                        help="Model quantization: none (bf16, ~19GB), int8 (~10-12GB), int4 (~11GB)")
     args = parser.parse_args()
+
+    # Configure voices directory (CLI overrides settings.yaml)
+    from tools.shared.session import load_settings
+    settings = load_settings()
+
+    from tools.audio.voice_manager import set_voices_dir
+    voices_dir = args.voices_dir or settings.get("audio", {}).get("voices_dir", "voices")
+    set_voices_dir(voices_dir)
+
+    # Configure quantization (CLI overrides settings.yaml)
+    from tools.model.model_manager import set_quantization
+    quant = args.quantization or settings.get("model", {}).get("quantization", "none")
+    set_quantization(quant)
 
     # Parse act selection
     selected_acts = None

@@ -39,8 +39,8 @@ Same as the Gradio app — see [README.md](README.md#requirements). Additional d
 
 Quantization works the same way:
 ```bash
-python rt_main.py --quantization int8   # ~10-12 GB VRAM
-python rt_main.py --quantization int4   # ~11 GB VRAM
+launch_rt.bat --quantization int8   # ~10-12 GB VRAM
+launch_rt.bat --quantization int4   # ~11 GB VRAM
 ```
 See [README.md](README.md#quantization) for details and research citations.
 

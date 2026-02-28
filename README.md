@@ -45,13 +45,13 @@ The model loads in bf16 by default (~19 GB VRAM). Quantization makes it accessib
 
 ```bash
 # Full precision (default, needs 20+ GB VRAM)
-python main.py
+launch.bat
 
 # INT8 quantization (recommended for 12-20 GB GPUs)
-python main.py --quantization int8
+launch.bat --quantization int8
 
 # INT4 quantization (for GPUs under 12 GB)
-python main.py --quantization int4
+launch.bat --quantization int4
 ```
 
 Or set it permanently in `args/settings.yaml`:
@@ -75,11 +75,11 @@ cd OmniChat
 python setup.py
 
 # 2. Launch the web UI
-python main.py
-# Open http://localhost:7860
+launch.bat
+# Opens http://localhost:7860
 
 # 3. Or run the live demo
-python -m demos.run_demo --stream
+demo.bat --stream
 ```
 
 ## Features
@@ -183,7 +183,7 @@ audio:
 
 ## Web UI
 
-Launch with `python main.py` or `launch.bat`. Opens at `http://localhost:7860`. Three tabs:
+Launch with `launch.bat` (or `python main.py`). Opens at `http://localhost:7860`. Three tabs:
 
 **Voice Chat** — Two sections: continuous conversation (top) with start/stop and mode selector, and single-turn (bottom) with mic input, text box, streaming audio output, chat history (last 20 turns with live partial updates), and voice selector dropdown. A color-coded animated state indicator shows the current conversation state in real-time.
 
@@ -205,11 +205,12 @@ The demo is a scripted 7-act showcase that exercises every capability:
 | 6 | Multi-Turn | Five-question conversation with streaming |
 
 ```bash
-python -m demos.run_demo                # file-based audio
-python -m demos.run_demo --stream       # real-time streaming
-python -m demos.run_demo --headless     # no audio/display (CI mode)
-python -m demos.run_demo --acts 1,3,5   # run specific acts
-python -m demos.run_demo --strict       # exit on first failure
+demo.bat                          # file-based audio
+demo.bat --stream                 # real-time streaming
+demo.bat --headless               # no audio/display (CI mode)
+demo.bat --acts 1,3,5             # run specific acts
+demo.bat --strict                 # exit on first failure
+demo.bat --quantization int8      # run with quantized model
 ```
 
 The demo also serves as a regression test via `pytest tests/test_demo_smoke.py`.
