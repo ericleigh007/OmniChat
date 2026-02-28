@@ -9,11 +9,11 @@ Two frontends share the same model and tools:
 | **Gradio Web UI** | `launch.bat` / `python main.py` | ~4-8s (HLS streaming) | Sharing, demos, remote access |
 | **PySide6 Desktop** | `launch_rt.bat` / `python rt_main.py` | ~1.5-2s (direct PCM) | Daily use, low-latency conversations |
 
-Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for the desktop app.
+Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for the desktop app, or [SETUP.md](SETUP.md) for full build instructions.
 
 ---
 
-*This README covers the Gradio web UI. For the desktop app, see [README_RT.md](README_RT.md).*
+*This README covers the Gradio web UI. For the desktop app, see [README_RT.md](README_RT.md). For step-by-step setup, see [SETUP.md](SETUP.md).*
 
 ## What It Does
 
@@ -36,6 +36,8 @@ Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for th
 The model loads in bf16 and uses ~19 GB VRAM.
 
 ## Quick Start
+
+See [SETUP.md](SETUP.md) for detailed step-by-step instructions including prerequisites, CUDA setup, and troubleshooting.
 
 ```bash
 cd OmniChat
