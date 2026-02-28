@@ -28,12 +28,41 @@ Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for th
 
 | Component | Minimum |
 |-----------|---------|
-| GPU | NVIDIA with 20+ GB VRAM |
+| GPU | NVIDIA with 10+ GB VRAM (quantized) or 20+ GB (full precision) |
 | CUDA | 12.x with PyTorch 2.3+ |
 | Python | 3.12+ |
 | OS | Windows (tested), Linux (should work) |
 
-The model loads in bf16 and uses ~19 GB VRAM.
+### Quantization
+
+The model loads in bf16 by default (~19 GB VRAM). Quantization makes it accessible on smaller GPUs:
+
+| Mode | VRAM | Method | Quality Impact |
+|------|------|--------|---------------|
+| `none` (default) | ~19 GB | bf16 full precision | Baseline |
+| `int8` | ~10-12 GB | bitsandbytes 8-bit | [Essentially lossless](https://arxiv.org/html/2411.02355v3) (~0.04% degradation) |
+| `int4` | ~11 GB | AWQ pre-quantized | [~1.6% degradation](https://research.aimultiple.com/llm-quantization/) on text benchmarks |
+
+```bash
+# Full precision (default, needs 20+ GB VRAM)
+python main.py
+
+# INT8 quantization (recommended for 12-20 GB GPUs)
+python main.py --quantization int8
+
+# INT4 quantization (for GPUs under 12 GB)
+python main.py --quantization int4
+```
+
+Or set it permanently in `args/settings.yaml`:
+```yaml
+model:
+  quantization: "int8"   # none, int8, int4
+```
+
+INT8 uses [bitsandbytes](https://github.com/bitsandbytes-foundation/bitsandbytes) on the same model checkpoint. INT4 uses OpenBMB's official [AWQ checkpoint](https://huggingface.co/openbmb/MiniCPM-o-4_5-awq) (~40 GB download on first use).
+
+**Research:** ["Give Me BF16 or Give Me Death?"](https://arxiv.org/html/2411.02355v3) (ACL 2025) found FP8/INT8 quantization essentially lossless across the Llama-3.1 family. See also [LLM Quantization: BF16 vs FP8 vs INT4](https://research.aimultiple.com/llm-quantization/) for broader benchmarks.
 
 ## Quick Start
 
@@ -191,7 +220,7 @@ All settings live in [`args/settings.yaml`](args/settings.yaml):
 
 | Section | Controls |
 |---------|----------|
-| `model` | Model name, dtype, device |
+| `model` | Model name, dtype, device, quantization |
 | `audio` | Sample rates, default voice, leveling/compression |
 | `voice_commands` | Enable/disable, fuzzy match threshold |
 | `inference` | Temperature, max tokens, sampling |
@@ -211,7 +240,7 @@ python -m pytest tests/test_integration.py -v -s
 python -m pytest tests/ -v
 ```
 
-**270 unit tests** covering audio processing, format detection, voice commands, voice management, model manager logic, streaming player, conversation state machine, Gradio streaming, RT audio pipeline, shared session helpers, and output saving.
+**276 unit tests** covering audio processing, format detection, voice commands, voice management, model manager logic, streaming player, conversation state machine, Gradio streaming, RT audio pipeline, shared session helpers, and output saving.
 
 **23 GPU integration tests** covering text chat, TTS with default and cloned voices, multi-turn echo detection, streaming generation, and audio input handling.
 
@@ -248,7 +277,7 @@ OmniChat/
 │   ├── run_demo.py            # 7-act live demo
 │   ├── demo_assets.py         # Generated test images
 │   └── demo_narrative.py      # Terminal presentation
-├── tests/                     # 270 unit + 23 GPU integration tests
+├── tests/                     # 276 unit + 23 GPU integration tests
 ├── goals/                     # Process definitions (GOTCHA framework)
 ├── context/                   # System prompts and domain knowledge
 └── outputs/                   # Saved results

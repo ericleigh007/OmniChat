@@ -444,3 +444,164 @@ class TestChatStreamingPreprocessing:
         assert results[0][1] == "Hello "
         assert len(results[1][0]) == 12000  # second audio chunk
         assert results[1][1] == "world!"
+
+
+class TestSetQuantization:
+    """Test set_quantization() validates and stores the mode."""
+
+    def setup_method(self):
+        import tools.model.model_manager as mm
+        self._orig = mm._quantization
+
+    def teardown_method(self):
+        import tools.model.model_manager as mm
+        mm._quantization = self._orig
+
+    def test_valid_modes(self):
+        from tools.model.model_manager import set_quantization
+        import tools.model.model_manager as mm
+
+        for mode in ("none", "int8", "int4"):
+            set_quantization(mode)
+            assert mm._quantization == mode
+
+    def test_invalid_mode_raises(self):
+        from tools.model.model_manager import set_quantization
+
+        with pytest.raises(ValueError, match="Unknown quantization mode"):
+            set_quantization("fp8")
+
+    def test_default_is_none(self):
+        import tools.model.model_manager as mm
+        # After teardown restores, the original default should be "none"
+        assert self._orig == "none"
+
+
+class TestGetModelQuantizationBranching:
+    """Test that get_model() uses the correct loading strategy per quantization mode.
+
+    All tests are mock-based — no GPU, no model download, no bitsandbytes needed.
+    """
+
+    def setup_method(self):
+        import tools.model.model_manager as mm
+        self._orig_model = mm._model
+        self._orig_tok = mm._tokenizer
+        self._orig_quant = mm._quantization
+        # Force fresh load on each test
+        mm._model = None
+        mm._tokenizer = None
+
+    def teardown_method(self):
+        import tools.model.model_manager as mm
+        mm._model = self._orig_model
+        mm._tokenizer = self._orig_tok
+        mm._quantization = self._orig_quant
+
+    def _setup_mock_torch(self, mock_torch):
+        """Configure mock torch to return realistic CUDA values for print statements."""
+        mock_torch.cuda.get_device_name.return_value = "MockGPU"
+        props = MagicMock()
+        props.total_memory = 24 * 1024**3  # 24 GB
+        mock_torch.cuda.get_device_properties.return_value = props
+        mock_torch.cuda.memory_allocated.return_value = 10 * 1024**3
+        mock_torch.bfloat16 = "bfloat16"
+
+    @patch("tools.model.model_manager.torch")
+    @patch("tools.model.model_manager.np")
+    def test_bf16_no_quantization_config(self, mock_np, mock_torch):
+        """mode='none' should NOT pass quantization_config or device_map."""
+        import tools.model.model_manager as mm
+        mm._quantization = "none"
+        self._setup_mock_torch(mock_torch)
+
+        mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+
+        with patch("transformers.AutoModel") as MockAutoModel, \
+             patch("transformers.AutoTokenizer") as MockAutoTokenizer:
+            MockAutoModel.from_pretrained.return_value = mock_model
+            MockAutoTokenizer.from_pretrained.return_value = mock_tokenizer
+            mock_model.eval.return_value = mock_model
+            mock_model.cuda.return_value = mock_model
+
+            mm.get_model()
+
+            # Verify model name is the base model
+            call_args = MockAutoModel.from_pretrained.call_args
+            assert call_args.args[0] == "openbmb/MiniCPM-o-4_5"
+
+            # No quantization_config or device_map
+            assert "quantization_config" not in call_args.kwargs
+            assert "device_map" not in call_args.kwargs
+
+            # Should call .cuda()
+            mock_model.eval.assert_called_once()
+            mock_model.cuda.assert_called_once()
+
+    @patch("tools.model.model_manager.torch")
+    @patch("tools.model.model_manager.np")
+    def test_int8_uses_bnb_config(self, mock_np, mock_torch):
+        """mode='int8' should pass BitsAndBytesConfig and device_map='auto'."""
+        import tools.model.model_manager as mm
+        mm._quantization = "int8"
+        self._setup_mock_torch(mock_torch)
+
+        mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+
+        with patch("transformers.AutoModel") as MockAutoModel, \
+             patch("transformers.AutoTokenizer") as MockAutoTokenizer, \
+             patch("transformers.BitsAndBytesConfig") as MockBNBConfig:
+            MockAutoModel.from_pretrained.return_value = mock_model
+            MockAutoTokenizer.from_pretrained.return_value = mock_tokenizer
+            mock_model.eval.return_value = mock_model
+
+            mm.get_model()
+
+            # Verify model name is the base model (same as bf16)
+            call_args = MockAutoModel.from_pretrained.call_args
+            assert call_args.args[0] == "openbmb/MiniCPM-o-4_5"
+
+            # Should have quantization_config and device_map
+            assert "quantization_config" in call_args.kwargs
+            assert call_args.kwargs["device_map"] == "auto"
+
+            # BitsAndBytesConfig called with load_in_8bit=True
+            MockBNBConfig.assert_called_once_with(load_in_8bit=True)
+
+            # Should NOT call .cuda() (BNB handles device placement)
+            mock_model.eval.assert_called_once()
+            mock_model.cuda.assert_not_called()
+
+    @patch("tools.model.model_manager.torch")
+    @patch("tools.model.model_manager.np")
+    def test_int4_uses_awq_checkpoint(self, mock_np, mock_torch):
+        """mode='int4' should use the AWQ model name and call .cuda()."""
+        import tools.model.model_manager as mm
+        mm._quantization = "int4"
+        self._setup_mock_torch(mock_torch)
+
+        mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+
+        with patch("transformers.AutoModel") as MockAutoModel, \
+             patch("transformers.AutoTokenizer") as MockAutoTokenizer:
+            MockAutoModel.from_pretrained.return_value = mock_model
+            MockAutoTokenizer.from_pretrained.return_value = mock_tokenizer
+            mock_model.eval.return_value = mock_model
+            mock_model.cuda.return_value = mock_model
+
+            mm.get_model()
+
+            # Verify model name is the AWQ checkpoint
+            call_args = MockAutoModel.from_pretrained.call_args
+            assert call_args.args[0] == "openbmb/MiniCPM-o-4_5-awq"
+
+            # No quantization_config (AWQ is pre-quantized)
+            assert "quantization_config" not in call_args.kwargs
+            assert "device_map" not in call_args.kwargs
+
+            # Should call .cuda() (AWQ loads like bf16)
+            mock_model.eval.assert_called_once()
+            mock_model.cuda.assert_called_once()

@@ -46,6 +46,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="OmniChat RT — Real-time desktop voice assistant")
     parser.add_argument("--voices-dir", default=None, help="Path to voice WAV samples directory")
+    parser.add_argument("--quantization", default=None, choices=["none", "int8", "int4"],
+                        help="Model quantization: none (bf16, ~19GB), int8 (~10-12GB), int4 (~11GB)")
     args = parser.parse_args()
 
     settings = load_settings()
@@ -54,6 +56,11 @@ def main():
     from tools.audio.voice_manager import set_voices_dir
     voices_dir = args.voices_dir or settings.get("audio", {}).get("voices_dir", "voices")
     set_voices_dir(voices_dir)
+
+    # Configure quantization (CLI overrides settings.yaml)
+    from tools.model.model_manager import set_quantization
+    quant = args.quantization or settings.get("model", {}).get("quantization", "none")
+    set_quantization(quant)
 
     app = QApplication([])
     app.setApplicationName("OmniChat RT")

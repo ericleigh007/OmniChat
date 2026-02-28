@@ -21,7 +21,7 @@ def load_settings() -> dict:
         with open(settings_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
     return {
-        "model": {"name": "openbmb/MiniCPM-o-4_5", "dtype": "bfloat16", "device": "cuda"},
+        "model": {"name": "openbmb/MiniCPM-o-4_5", "dtype": "bfloat16", "device": "cuda", "quantization": "none"},
         "audio": {
             "input_sample_rate": 16000, "output_sample_rate": 24000, "default_voice": None, "voices_dir": "voices",
             "leveling": {

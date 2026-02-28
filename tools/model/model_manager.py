@@ -21,10 +21,30 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 MODEL_NAME = "openbmb/MiniCPM-o-4_5"
+MODEL_NAME_INT4 = "openbmb/MiniCPM-o-4_5-awq"
 
 # Module-level singleton
 _model = None
 _tokenizer = None
+
+# Quantization mode: "none" (bf16, ~19 GB), "int8" (~10-12 GB), "int4" (~11 GB)
+_quantization = "none"
+
+
+def set_quantization(mode: str) -> None:
+    """Set the quantization mode before the model is loaded.
+
+    Must be called before the first get_model() call.  Has no effect if the
+    model is already loaded (singleton).
+
+    Args:
+        mode: "none" (bf16), "int8" (bitsandbytes), or "int4" (AWQ checkpoint).
+    """
+    global _quantization
+    valid = ("none", "int8", "int4")
+    if mode not in valid:
+        raise ValueError(f"Unknown quantization mode: {mode!r}. Use one of {valid}.")
+    _quantization = mode
 
 # Turn counter for diagnostics
 _turn_count = 0
@@ -35,7 +55,13 @@ _FADE_IN_SAMPLES = 2400  # 100ms at 24kHz
 
 
 def get_model():
-    """Load MiniCPM-o 4.5 (singleton — loads once, reuses on subsequent calls)."""
+    """Load MiniCPM-o 4.5 (singleton — loads once, reuses on subsequent calls).
+
+    Respects the quantization mode set via set_quantization():
+      - "none"  — bf16, ~19 GB VRAM (default)
+      - "int8"  — bitsandbytes 8-bit, ~10-12 GB VRAM
+      - "int4"  — AWQ pre-quantized checkpoint, ~11 GB VRAM
+    """
     global _model, _tokenizer
 
     if _model is not None:
@@ -43,24 +69,41 @@ def get_model():
 
     from transformers import AutoModel, AutoTokenizer
 
-    print(f"Loading {MODEL_NAME}...")
+    # Choose model name — int4 uses the official AWQ checkpoint
+    model_name = MODEL_NAME_INT4 if _quantization == "int4" else MODEL_NAME
+
+    quant_label = {"none": "bf16 (full precision)", "int8": "int8 (bitsandbytes)", "int4": "int4 (AWQ)"}
+    print(f"Loading {model_name}...")
+    print(f"  Precision: {quant_label.get(_quantization, _quantization)}")
     print(f"  Device: cuda ({torch.cuda.get_device_name(0)})")
-    print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.0f} GB")
+    print(f"  VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.0f} GB")
 
     _tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_NAME, trust_remote_code=True
+        model_name, trust_remote_code=True
     )
 
-    _model = AutoModel.from_pretrained(
-        MODEL_NAME,
-        trust_remote_code=True,
-        attn_implementation="sdpa",
-        torch_dtype=torch.bfloat16,
-        init_vision=True,
-        init_audio=True,
-        init_tts=True,
-    )
-    _model.eval().cuda()
+    load_kwargs = {
+        "trust_remote_code": True,
+        "attn_implementation": "sdpa",
+        "torch_dtype": torch.bfloat16,
+        "init_vision": True,
+        "init_audio": True,
+        "init_tts": True,
+    }
+
+    if _quantization == "int8":
+        from transformers import BitsAndBytesConfig
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        load_kwargs["device_map"] = "auto"
+
+    _model = AutoModel.from_pretrained(model_name, **load_kwargs)
+
+    if _quantization == "int8":
+        # BNB places the model on device via device_map — do NOT call .cuda()
+        _model.eval()
+    else:
+        _model.eval().cuda()
+
     _model.init_tts()
 
     # Pre-initialize Token2wav cache with a short silent prompt so the default
@@ -70,6 +113,8 @@ def get_model():
     _init_audio = np.zeros(16000, dtype=np.float32)  # 1s silence at 16kHz
     _model.init_token2wav_cache(_init_audio)
 
+    vram_used = torch.cuda.memory_allocated() / 1024**3
+    print(f"  VRAM used: {vram_used:.1f} GB")
     print("  Model loaded and ready.")
     return _model, _tokenizer
 

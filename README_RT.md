@@ -37,6 +37,13 @@ A splash screen shows while the model loads (~30s first time, ~10s cached). The 
 
 Same as the Gradio app — see [README.md](README.md#requirements). Additional dependency: `PySide6>=6.6` (included in `requirements.txt`).
 
+Quantization works the same way:
+```bash
+python rt_main.py --quantization int8   # ~10-12 GB VRAM
+python rt_main.py --quantization int4   # ~11 GB VRAM
+```
+See [README.md](README.md#quantization) for details and research citations.
+
 ## Features
 
 ### Voice Chat

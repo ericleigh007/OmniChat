@@ -5,6 +5,7 @@ model:
   name: "openbmb/MiniCPM-o-4_5"
   dtype: "bfloat16"
   device: "cuda"
+  quantization: "none"            # none = bf16 (~19 GB), int8 (~10-12 GB), int4 (~11 GB)
 
 audio:
   input_sample_rate: 16000

@@ -7,7 +7,7 @@ Step-by-step instructions to get OmniChat running from a fresh clone.
 | Requirement | Details |
 |-------------|---------|
 | **Python** | 3.12 or later |
-| **NVIDIA GPU** | 20+ GB VRAM (model uses ~19 GB in bf16) |
+| **NVIDIA GPU** | 10+ GB VRAM (quantized) or 20+ GB (full precision) |
 | **CUDA** | 12.x with a compatible PyTorch build |
 | **OS** | Windows 11 (tested). Linux should work but is untested. |
 | **Disk space** | ~40 GB for the model (downloaded on first run, cached by HuggingFace) |
@@ -158,7 +158,7 @@ python -m pytest tests/ -v -m "not gpu"
 python -m pytest tests/test_integration.py -v -s
 ```
 
-All 270 unit tests should pass. The 23 GPU tests require the model to be loaded and a working CUDA setup.
+All 276 unit tests should pass. The 23 GPU tests require the model to be loaded and a working CUDA setup.
 
 ## Configuration
 
@@ -168,6 +168,7 @@ All settings are in `args/settings.yaml`. Key settings to adjust:
 |---------|---------|-------------|
 | `model.name` | `openbmb/MiniCPM-o-4_5` | HuggingFace model ID |
 | `model.dtype` | `bfloat16` | Model precision (bf16 needs ~19 GB VRAM) |
+| `model.quantization` | `none` | `none` (bf16), `int8` (~10-12 GB), `int4` (~11 GB) |
 | `audio.voices_dir` | `voices` | Path to voice WAV samples |
 | `audio.voice_sample_length_s` | `5.0` | Seconds of voice clip sent for cloning |
 | `inference.temperature` | `0.7` | Sampling randomness (0.0 = deterministic) |
@@ -185,9 +186,11 @@ See the full [settings.yaml](args/settings.yaml) for all options including audio
 - You may need to reinstall PyTorch with the correct CUDA version from https://pytorch.org
 
 ### "Out of memory" on model load
-- MiniCPM-o 4.5 needs ~19 GB VRAM in bf16
+- MiniCPM-o 4.5 needs ~19 GB VRAM in bf16 (full precision)
 - Close other GPU-using applications
-- If your GPU has less than 20 GB, consider int4 quantization (not yet implemented in OmniChat)
+- Use `--quantization int8` for GPUs with 12-20 GB VRAM (~10-12 GB usage)
+- Use `--quantization int4` for GPUs under 12 GB (~11 GB usage)
+- Or set `model.quantization` in `args/settings.yaml`
 
 ### Model downloads are slow
 - The model is ~40 GB. First download takes time.

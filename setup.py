@@ -78,10 +78,15 @@ def check_cuda():
         vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
         ok(f"GPU: {gpu_name} ({vram_gb:.0f} GB VRAM)")
 
-        if vram_gb < 20:
+        if vram_gb < 12:
             warn(
                 f"GPU has {vram_gb:.0f} GB VRAM. MiniCPM-o 4.5 needs ~19 GB in bf16. "
-                "Consider int4 quantization."
+                "Use int4 quantization (~11 GB): --quantization int4"
+            )
+        elif vram_gb < 20:
+            warn(
+                f"GPU has {vram_gb:.0f} GB VRAM. MiniCPM-o 4.5 needs ~19 GB in bf16. "
+                "Use int8 quantization (~10-12 GB): --quantization int8"
             )
     except ImportError:
         warn("PyTorch not installed — cannot check GPU")
