@@ -208,6 +208,7 @@ The demo is a scripted 7-act showcase that exercises every capability:
 | 4 | Vision — Image | Describes a generated geometric scene |
 | 5 | Vision — OCR | Extracts text from a generated invoice |
 | 6 | Multi-Turn | Five-question conversation with streaming |
+| 7 | Samantha Voice | Two science questions in Scarlett Johansson's "Her" voice |
 
 ```bash
 demo.bat                          # file-based audio
@@ -219,6 +220,18 @@ demo.bat --quantization int8      # run with quantized model
 ```
 
 The demo also serves as a regression test via `pytest tests/test_demo_smoke.py`.
+
+## Quantization Benchmarks
+
+Compare audio quality across bf16, int8, and int4 with spectrograms and metrics:
+
+```bash
+benchmarks\benchmark.bat                         # run all three quant levels
+benchmarks\benchmark.bat --quants none,int8      # compare specific levels
+benchmarks\benchmark.bat --voice-ref voices\samantha_johansson.wav  # with voice cloning
+```
+
+Each quant level runs in a separate subprocess (model singleton can't reload). Outputs raw pre-leveling audio, mel spectrograms, and a markdown report with RMS, spectral centroid, bandwidth, and zero-crossing rate comparisons.
 
 ## Configuration
 
@@ -283,6 +296,12 @@ OmniChat/
 │   ├── run_demo.py            # 7-act live demo
 │   ├── demo_assets.py         # Generated test images
 │   └── demo_narrative.py      # Terminal presentation
+├── benchmarks/
+│   ├── run_benchmark.py       # Orchestrator — runs all quant levels
+│   ├── run_single_quant.py    # Worker — loads model at one precision
+│   ├── analyze_results.py     # Spectrograms and audio metrics report
+│   ├── prompts.py             # Fixed prompts for comparison
+│   └── benchmark.bat          # Windows launcher
 ├── tests/                     # 276 unit + 23 GPU integration tests
 ├── goals/                     # Process definitions (GOTCHA framework)
 ├── context/                   # System prompts and domain knowledge
