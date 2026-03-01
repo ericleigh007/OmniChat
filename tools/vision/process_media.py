@@ -107,6 +107,9 @@ def scan_image(
     output_audio_path: Optional[str] = None,
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> dict:
     """
     Analyze an image with a text prompt.
@@ -137,6 +140,9 @@ def scan_image(
         temperature=temperature,
         max_new_tokens=max_new_tokens,
         max_slice_nums=1,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
     )
 
     fmt = _detect_format(result["text"])
@@ -160,6 +166,9 @@ def scan_document(
     output_audio_path: Optional[str] = None,
     temperature: float = 0.3,
     max_new_tokens: int = 4096,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> dict:
     """
     OCR-focused document scanning with high slice count for dense text.
@@ -183,6 +192,9 @@ def scan_document(
         temperature=temperature,
         max_new_tokens=max_new_tokens,
         max_slice_nums=25,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
     )
 
     fmt = _detect_format(result["text"])
@@ -206,6 +218,9 @@ def analyze_video(
     output_audio_path: Optional[str] = None,
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> dict:
     """
     Analyze a video file (frames + audio track).
@@ -225,6 +240,9 @@ def analyze_video(
         output_audio_path=output_audio_path,
         temperature=temperature,
         max_new_tokens=max_new_tokens,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
     )
 
     fmt = _detect_format(result["text"])

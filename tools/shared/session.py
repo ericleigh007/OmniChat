@@ -33,7 +33,11 @@ def load_settings() -> dict:
             },
         },
         "voice_commands": {"enabled": True, "fuzzy_threshold": 0.6},
-        "inference": {"temperature": 0.7, "max_new_tokens": 2048, "do_sample": True},
+        "inference": {
+            "temperature": 0.7, "max_new_tokens": 2048, "do_sample": True,
+            "repetition_penalty": 1.05, "top_p": 0.8, "top_k": 100,
+            "enable_thinking": False,
+        },
         "output": {"default_format": "auto", "save_dir": "outputs"},
         "server": {"host": "localhost", "port": 7860, "share": False},
     }

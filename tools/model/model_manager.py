@@ -466,6 +466,9 @@ def chat(
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
     repetition_penalty: float = 1.2,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> dict:
     """
     Single-turn chat with optional voice cloning.
@@ -479,6 +482,10 @@ def chat(
         output_audio_path: If set, save audio response to this path.
         temperature: Sampling temperature.
         max_new_tokens: Max tokens to generate.
+        repetition_penalty: Penalty for repeated tokens.
+        top_p: Nucleus sampling threshold (0.0-1.0).
+        top_k: Top-k sampling (1-500).
+        enable_thinking: If True, enable the model's chain-of-thought reasoning.
 
     Returns:
         dict with keys:
@@ -521,6 +528,9 @@ def chat(
         do_sample=True,
         temperature=temperature,
         repetition_penalty=repetition_penalty,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
         use_tts_template=generate_audio,
         generate_audio=generate_audio,
         output_audio_path=output_audio_path,
@@ -569,6 +579,9 @@ def chat_streaming(
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
     repetition_penalty: float = 1.2,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> Generator[tuple[Optional[np.ndarray], str], None, None]:
     """
     Streaming chat — yields (audio_chunk, text_chunk) tuples as the model generates.
@@ -582,6 +595,10 @@ def chat_streaming(
         generate_audio: If True, generate spoken audio (yields waveform chunks).
         temperature: Sampling temperature.
         max_new_tokens: Max tokens to generate.
+        repetition_penalty: Penalty for repeated tokens.
+        top_p: Nucleus sampling threshold (0.0-1.0).
+        top_k: Top-k sampling (1-500).
+        enable_thinking: If True, enable chain-of-thought reasoning.
 
     Yields:
         (audio_chunk, text_chunk) where:
@@ -714,7 +731,11 @@ def chat_streaming(
         max_new_tokens=max_new_tokens,
         use_tts_template=generate_audio,
         do_sample=True,
+        temperature=temperature,
         repetition_penalty=repetition_penalty,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
     ):
         # streaming_generate yields (waveform_chunk, new_text) when generate_audio=True,
         # but (text_str, bool) when generate_audio=False.  Detect audio by type.
@@ -754,6 +775,9 @@ def chat_streaming_with_playback(
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
     repetition_penalty: float = 1.2,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
     headless: bool = False,
     on_text_chunk: Optional[Callable[[str], None]] = None,
 ) -> dict:
@@ -769,6 +793,10 @@ def chat_streaming_with_playback(
         output_audio_path: If set, save complete audio here AFTER playback.
         temperature: Sampling temperature.
         max_new_tokens: Max tokens.
+        repetition_penalty: Penalty for repeated tokens.
+        top_p: Nucleus sampling threshold (0.0-1.0).
+        top_k: Top-k sampling (1-500).
+        enable_thinking: If True, enable chain-of-thought reasoning.
         headless: If True, skip audio playback (collect audio silently).
         on_text_chunk: Optional callback for incremental text updates.
 
@@ -795,6 +823,9 @@ def chat_streaming_with_playback(
             temperature=temperature,
             max_new_tokens=max_new_tokens,
             repetition_penalty=repetition_penalty,
+            top_p=top_p,
+            top_k=top_k,
+            enable_thinking=enable_thinking,
         ):
             if audio_chunk is not None:
                 # Smooth vocoder cold-start on the very first chunk
@@ -855,6 +886,9 @@ def process_image(
     max_new_tokens: int = 2048,
     max_slice_nums: int = 1,
     repetition_penalty: float = 1.2,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> dict:
     """
     Analyze an image with an optional text prompt.
@@ -887,6 +921,9 @@ def process_image(
         do_sample=True,
         temperature=temperature,
         repetition_penalty=repetition_penalty,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
         use_tts_template=generate_audio,
         generate_audio=generate_audio,
         output_audio_path=output_audio_path,
@@ -917,6 +954,9 @@ def process_video(
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
     repetition_penalty: float = 1.2,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
 ) -> dict:
     """
     Analyze a video file (with audio track).
@@ -938,12 +978,43 @@ def process_video(
 
     from minicpmo.utils import get_video_frame_audio_segments
 
-    video_frames, audio_segments, stacked_frames = get_video_frame_audio_segments(
-        video_path,
-        stack_frames=1,
-        use_ffmpeg=True,
-        adjust_audio_length=True,
-    )
+    # Pre-extract audio using imageio-ffmpeg's bundled binary.
+    # minicpmo's own audio extraction fails on Windows with MKV files:
+    #   - use_ffmpeg=True needs ffprobe on PATH (not installed)
+    #   - use_ffmpeg=False falls back to moviepy which uses
+    #     NamedTemporaryFile(delete=True) — Windows locks the file,
+    #     so ffmpeg subprocess gets "Permission denied"
+    # By extracting audio ourselves and passing audio_path, we bypass
+    # both code paths entirely.
+    import tempfile
+    import subprocess
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    temp_audio = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    temp_audio_path = temp_audio.name
+    temp_audio.close()  # close immediately so ffmpeg can write to it
+    try:
+        subprocess.run(
+            [ffmpeg_exe, "-y", "-i", video_path, "-vn", "-ac", "1",
+             "-ar", "16000", temp_audio_path],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        Path(temp_audio_path).unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Failed to extract audio from video: {e.stderr.decode(errors='replace')}"
+        ) from e
+
+    try:
+        video_frames, audio_segments, stacked_frames = get_video_frame_audio_segments(
+            video_path,
+            audio_path=temp_audio_path,
+            stack_frames=1,
+            use_ffmpeg=False,
+            adjust_audio_length=True,
+        )
+    finally:
+        Path(temp_audio_path).unlink(missing_ok=True)
 
     # Build interleaved content: frame, audio, frame, audio, ...
     omni_contents = []
@@ -968,6 +1039,9 @@ def process_video(
         do_sample=True,
         temperature=temperature,
         repetition_penalty=repetition_penalty,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
         use_tts_template=generate_audio,
         generate_audio=generate_audio,
         output_audio_path=output_audio_path,

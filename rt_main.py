@@ -19,7 +19,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 from PySide6.QtWidgets import QApplication, QSplashScreen, QLabel
 from PySide6.QtCore import QThread, Signal, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 
 from tools.shared.session import load_settings
 
@@ -62,9 +62,21 @@ def main():
     quant = args.quantization or settings.get("model", {}).get("quantization", "none")
     set_quantization(quant)
 
+    # Set Windows AppUserModelID so the taskbar shows our icon (not generic Python)
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("omnichat.rt.desktop")
+    except Exception:
+        pass
+
     app = QApplication([])
     app.setApplicationName("OmniChat RT")
     app.setStyle("Fusion")
+
+    # Set application-wide icon (taskbar, window title bar, Alt-Tab)
+    icon_path = BASE_DIR / "assets" / "omnichat.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     # Show a simple splash while the model loads
     splash_label = QLabel("OmniChat RT\n\nLoading model...")

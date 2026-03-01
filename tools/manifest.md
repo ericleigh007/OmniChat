@@ -29,12 +29,13 @@ Always check this file before writing a new script — a tool may already exist.
 | Script | Description |
 |--------|-------------|
 | `process_media.py` | Image analysis, document OCR, and video understanding with auto format detection |
+| `pdf_processor.py` | PDF-to-image rendering (PyMuPDF), per-page OCR via scan_document, table aggregation across pages |
 
 ## Output (`tools/output/`)
 
 | Script | Description |
 |--------|-------------|
-| `save_output.py` | Save processed content as markdown, plain text, or Excel with auto-format detection |
+| `save_output.py` | Save processed content as markdown, plain text, CSV, TSV, or Excel; supports auto-format detection and explicit Save As paths |
 
 ## Tests (`tests/`)
 
@@ -47,13 +48,14 @@ Always check this file before writing a new script — a tool may already exist.
 | `test_voice_manager.py` | Voice sample fuzzy matching, name normalization, CRUD operations |
 | `test_audio_processing.py` | Audio normalization (dtype, channels, sample rate) and fade-in |
 | `test_format_detection.py` | Output format auto-detection and table parsing |
-| `test_save_output.py` | Markdown, text, and Excel file saving |
+| `test_save_output.py` | Markdown, text, CSV, TSV, Excel file saving, explicit path (Save As) support |
 | `test_model_manager.py` | Mock-based tests for model reset logic, message construction, and streaming preprocessing |
 | `test_streaming_player.py` | Mock-based tests for StreamingAudioPlayer queue/callback logic |
 | `test_integration.py` | GPU integration tests — real model, multi-turn echo, audio gen, voice switching, streaming audio, streaming audio input |
 | `test_conversation.py` | Mock-based tests for ConversationManager state machine, VAD integration, mode switching, and turn detection |
 | `test_gradio_streaming.py` | Streaming helpers (WAV bytes, chunk normalization, ffmpeg config, audio chunking, pydub monkeypatch, ADTS pipeline) |
 | `test_vad_integration.py` | Real Silero-VAD tests — model loading, speech detection, conversation flow, Gradio mic simulation, audio normalization |
+| `test_pdf_processor.py` | PDF rendering (real tiny PDFs) and OCR aggregation (mocked model) |
 | `test_demo_smoke.py` | Pytest wrapper — runs full demo in headless mode as regression test |
 
 ## Benchmarks (`benchmarks/`)

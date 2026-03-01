@@ -68,6 +68,10 @@ def build_app(settings: dict) -> gr.Blocks:
     from tools.audio.extract_voice import extract_audio_from_video
     from tools.audio.conversation import ConversationManager
     from tools.vision.process_media import scan_image, scan_document, analyze_video
+    from tools.vision.pdf_processor import (
+        scan_pdf, scan_bank_statement, scan_multiple_pdfs,
+        get_page_count, merge_tables,
+    )
     from tools.output.save_output import save_auto
 
     inference = settings.get("inference", {})
@@ -79,11 +83,15 @@ def build_app(settings: dict) -> gr.Blocks:
     # Session state
     current_voice_ref = [None]   # mutable container for current voice audio ref
     current_voice_name = [None]  # mutable container for current voice name
+    last_pdf_table = [None]      # mutable container for last extracted PDF table
     chat_history = []            # list of (role, text) tuples
     session_settings = {         # mutable settings the user can tweak in the UI
         "temperature": inference.get("temperature", 0.7),
         "max_new_tokens": inference.get("max_new_tokens", 2048),
         "repetition_penalty": inference.get("repetition_penalty", 1.05),
+        "top_p": inference.get("top_p", 0.8),
+        "top_k": inference.get("top_k", 100),
+        "enable_thinking": inference.get("enable_thinking", False),
         "output_format": output_cfg.get("default_format", "auto"),
         "streaming_enabled": streaming_cfg.get("enabled", True),
         "voice_sample_length_s": audio_cfg.get("voice_sample_length_s", 5.0),
@@ -341,6 +349,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
                 repetition_penalty=session_settings["repetition_penalty"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
             full_text = ""
             interrupted = False
@@ -393,6 +404,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
                 repetition_penalty=session_settings["repetition_penalty"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
             audio_output = _get_audio_output(result, output_path)
             has_audio = audio_output is not None
@@ -455,6 +469,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
                 repetition_penalty=session_settings["repetition_penalty"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
             full_text = ""
             for wav_bytes, text in _buffered_streaming(stream_gen):
@@ -494,6 +511,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
                 repetition_penalty=session_settings["repetition_penalty"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
 
             status_msg, dropdown_update = _detect_and_apply_voice_cmd(result["text"])
@@ -539,6 +559,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
                 repetition_penalty=session_settings["repetition_penalty"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
             full_text = ""
             for wav_bytes, text in _buffered_streaming(stream_gen):
@@ -571,6 +594,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
                 repetition_penalty=session_settings["repetition_penalty"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
 
             chat_history.append(("assistant", result["text"]))
@@ -605,6 +631,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 prompt=prompt,
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
         else:
             prompt = prompt or "Describe this image in detail."
@@ -613,6 +642,9 @@ def build_app(settings: dict) -> gr.Blocks:
                 prompt=prompt,
                 temperature=session_settings["temperature"],
                 max_new_tokens=session_settings["max_new_tokens"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
             )
 
         fmt_label = f"Detected format: {result['format']}"
@@ -633,10 +665,85 @@ def build_app(settings: dict) -> gr.Blocks:
             prompt=prompt,
             temperature=session_settings["temperature"],
             max_new_tokens=session_settings["max_new_tokens"],
+            top_p=session_settings["top_p"],
+            top_k=session_settings["top_k"],
+            enable_thinking=session_settings["enable_thinking"],
         )
 
         fmt_label = f"Detected format: {result['format']}"
         return result["text"], fmt_label
+
+    def process_pdf_upload(pdf_files, prompt, is_bank_statement, accumulate, progress=gr.Progress()):
+        """Handle PDF upload -- supports multiple files and accumulation."""
+        if pdf_files is None or len(pdf_files) == 0:
+            return "No PDF provided.", ""
+
+        # Normalize to list of paths
+        paths = []
+        for f in (pdf_files if isinstance(pdf_files, list) else [pdf_files]):
+            paths.append(f.name if hasattr(f, "name") else str(f))
+
+        def on_file_start(idx, total, name):
+            progress(idx / total, desc=f"File {idx + 1}/{total}: {name}...")
+
+        def on_page_start(page_num, total):
+            progress(page_num / total, desc=f"  OCR page {page_num + 1}/{total}...")
+
+        def on_page_done(page_num, total, page_result):
+            pass  # on_page_start already updates progress
+
+        if len(paths) == 1:
+            if is_bank_statement:
+                result = scan_bank_statement(
+                    paths[0], on_page_start=on_page_start, on_page_done=on_page_done,
+                )
+            else:
+                custom_prompt = prompt.strip() if prompt else None
+                result = scan_pdf(
+                    paths[0],
+                    prompt=custom_prompt,
+                    temperature=session_settings["temperature"],
+                    max_new_tokens=session_settings["max_new_tokens"],
+                    on_page_start=on_page_start,
+                    on_page_done=on_page_done,
+                )
+            new_text = result["combined_text"]
+            new_table = result["combined_table"]
+            pages = result["page_count"]
+        else:
+            result = scan_multiple_pdfs(
+                paths,
+                prompt=prompt.strip() if prompt else None,
+                bank_mode=is_bank_statement,
+                temperature=session_settings["temperature"],
+                max_new_tokens=session_settings["max_new_tokens"],
+                on_file_start=on_file_start,
+                on_page_start=on_page_start,
+                on_page_done=on_page_done,
+            )
+            new_text = result["combined_text"]
+            new_table = result["combined_table"]
+            pages = result["total_pages"]
+
+        # Accumulate or replace
+        if accumulate and last_pdf_table[0]:
+            last_pdf_table[0] = merge_tables(last_pdf_table[0], new_table)
+        else:
+            last_pdf_table[0] = new_table
+
+        rows = len(last_pdf_table[0]) - 1 if last_pdf_table[0] else 0  # minus header
+        fmt_label = f"Scanned {pages} pages from {len(paths)} file(s)"
+        if last_pdf_table[0]:
+            fmt_label += f" | Table: {rows} data rows"
+            if accumulate:
+                fmt_label += " (accumulated)"
+
+        return new_text, fmt_label
+
+    def clear_pdf_results():
+        """Clear accumulated PDF table data."""
+        last_pdf_table[0] = None
+        return "", "Results cleared"
 
     def save_vision_output(text, filename):
         """Save vision output to file."""
@@ -644,9 +751,17 @@ def build_app(settings: dict) -> gr.Blocks:
             return "Nothing to save."
 
         filename = filename.strip() if filename else None
+        table = last_pdf_table[0]
+        fmt = session_settings["output_format"]
+
+        # For PDF results with tables, prefer excel in auto mode
+        if table and fmt == "auto":
+            fmt = "excel"
+
         path = save_auto(
             text,
-            fmt=session_settings["output_format"],
+            fmt=fmt,
+            table=table,
             filename=filename,
         )
         return f"Saved to: {path}"
@@ -746,6 +861,22 @@ def build_app(settings: dict) -> gr.Blocks:
         """Update repetition penalty — higher values reduce voice sample echo."""
         session_settings["repetition_penalty"] = val
         return f"Repetition penalty: {val}"
+
+    def update_top_p(val):
+        """Update top-p (nucleus sampling) threshold."""
+        session_settings["top_p"] = val
+        return f"Top-p: {val}"
+
+    def update_top_k(val):
+        """Update top-k sampling."""
+        session_settings["top_k"] = int(val)
+        return f"Top-k: {int(val)}"
+
+    def update_enable_thinking(val):
+        """Toggle thinking mode (chain-of-thought reasoning)."""
+        session_settings["enable_thinking"] = val
+        mode = "Enabled" if val else "Disabled"
+        return f"Thinking mode: {mode}"
 
     def update_voice_sample_length(val):
         """Update how many seconds of the voice clip are sent to the model."""
@@ -911,6 +1042,30 @@ def build_app(settings: dict) -> gr.Blocks:
                                 )
                                 vision_video_btn = gr.Button("Analyze Video", variant="primary")
 
+                            with gr.Tab("PDF"):
+                                vision_pdf = gr.File(
+                                    label="Upload PDF(s) -- select multiple files to combine",
+                                    file_types=[".pdf"],
+                                    file_count="multiple",
+                                    type="filepath",
+                                )
+                                with gr.Row():
+                                    vision_bank_mode = gr.Checkbox(
+                                        label="Bank statement mode",
+                                        value=True,
+                                    )
+                                    vision_accumulate = gr.Checkbox(
+                                        label="Accumulate across scans (append to previous results)",
+                                        value=False,
+                                    )
+                                vision_pdf_prompt = gr.Textbox(
+                                    placeholder="Custom extraction prompt... (ignored in bank statement mode)",
+                                    label="Prompt",
+                                )
+                                with gr.Row():
+                                    vision_pdf_btn = gr.Button("Scan PDF", variant="primary", scale=3)
+                                    vision_clear_btn = gr.Button("Clear Results", scale=1)
+
                     with gr.Column(scale=2):
                         vision_output = gr.Textbox(
                             label="Analysis Output",
@@ -953,7 +1108,7 @@ def build_app(settings: dict) -> gr.Blocks:
                             label="Max response tokens",
                         )
                         format_dropdown = gr.Dropdown(
-                            choices=["auto", "markdown", "text", "excel"],
+                            choices=["auto", "markdown", "text", "excel", "csv", "tsv"],
                             value=session_settings["output_format"],
                             label="Output format (for saved files)",
                         )
@@ -969,6 +1124,27 @@ def build_app(settings: dict) -> gr.Blocks:
                             value=session_settings["repetition_penalty"],
                             label="Repetition penalty",
                             info="Higher values reduce voice sample echo. Model default is 1.05, recommended 1.3-1.5 with voice cloning.",
+                        )
+                        top_p_slider = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.05,
+                            value=session_settings["top_p"],
+                            label="Top-p (nucleus sampling)",
+                            info="Probability mass threshold for nucleus sampling. Lower = more focused.",
+                        )
+                        top_k_slider = gr.Slider(
+                            minimum=1,
+                            maximum=500,
+                            step=10,
+                            value=session_settings["top_k"],
+                            label="Top-k",
+                            info="Number of top tokens to consider. Lower = more focused.",
+                        )
+                        thinking_toggle = gr.Checkbox(
+                            label="Enable thinking mode",
+                            value=session_settings["enable_thinking"],
+                            info="Chain-of-thought reasoning. May improve complex tasks but uses more tokens.",
                         )
                         voice_sample_slider = gr.Slider(
                             minimum=1.0,
@@ -1156,6 +1332,17 @@ def build_app(settings: dict) -> gr.Blocks:
             outputs=[vision_output, vision_format_label],
         )
 
+        vision_pdf_btn.click(
+            fn=process_pdf_upload,
+            inputs=[vision_pdf, vision_pdf_prompt, vision_bank_mode, vision_accumulate],
+            outputs=[vision_output, vision_format_label],
+        )
+
+        vision_clear_btn.click(
+            fn=clear_pdf_results,
+            outputs=[vision_output, vision_format_label],
+        )
+
         vision_save_btn.click(
             fn=save_vision_output,
             inputs=[vision_output, vision_save_name],
@@ -1190,6 +1377,24 @@ def build_app(settings: dict) -> gr.Blocks:
         rep_penalty_slider.release(
             fn=update_repetition_penalty,
             inputs=[rep_penalty_slider],
+            outputs=[settings_status],
+        )
+
+        top_p_slider.release(
+            fn=update_top_p,
+            inputs=[top_p_slider],
+            outputs=[settings_status],
+        )
+
+        top_k_slider.release(
+            fn=update_top_k,
+            inputs=[top_k_slider],
+            outputs=[settings_status],
+        )
+
+        thinking_toggle.change(
+            fn=update_enable_thinking,
+            inputs=[thinking_toggle],
             outputs=[settings_status],
         )
 

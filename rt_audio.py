@@ -111,6 +111,9 @@ class ModelInferenceThread(QThread):
                 temperature=self._settings.get("temperature", 0.7),
                 max_new_tokens=self._settings.get("max_new_tokens", 2048),
                 repetition_penalty=self._settings.get("repetition_penalty", 1.05),
+                top_p=self._settings.get("top_p", 0.8),
+                top_k=self._settings.get("top_k", 100),
+                enable_thinking=self._settings.get("enable_thinking", False),
             ):
                 if self._stop_requested:
                     break

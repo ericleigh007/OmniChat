@@ -11,10 +11,10 @@ from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QLineEdit, QComboBox,
     QCheckBox, QDoubleSpinBox, QSpinBox, QGroupBox, QFileDialog,
-    QSplitter, QStatusBar, QProgressBar,
+    QSplitter, QStatusBar, QProgressBar, QMessageBox,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QPixmap, QColor
+from PySide6.QtGui import QFont, QIcon, QPixmap, QColor
 
 from rt_audio import AudioPipeline
 from tools.shared.session import (
@@ -44,6 +44,9 @@ class OmniChatWindow(QMainWindow):
             "temperature": inference.get("temperature", 0.7),
             "max_new_tokens": inference.get("max_new_tokens", 2048),
             "repetition_penalty": inference.get("repetition_penalty", 1.05),
+            "top_p": inference.get("top_p", 0.8),
+            "top_k": inference.get("top_k", 100),
+            "enable_thinking": inference.get("enable_thinking", False),
             "output_format": output_cfg.get("default_format", "auto"),
             "voice_sample_length_s": audio_cfg.get("voice_sample_length_s", 5.0),
         }
@@ -72,6 +75,9 @@ class OmniChatWindow(QMainWindow):
         self._setup_ui()
         self._setup_statusbar()
         self.setWindowTitle("OmniChat RT")
+        icon_path = BASE_DIR / "assets" / "omnichat.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.resize(900, 700)
 
     # ── UI Setup ──────────────────────────────────────────────────────────
@@ -221,6 +227,49 @@ class OmniChatWindow(QMainWindow):
 
         layout.addWidget(vid_group)
 
+        # PDF section
+        pdf_group = QGroupBox("PDF Document Scanning")
+        pdf_layout = QVBoxLayout(pdf_group)
+
+        pdf_controls = QHBoxLayout()
+        self._pdf_upload_btn = QPushButton("Upload PDF(s)")
+        self._pdf_upload_btn.clicked.connect(self._upload_pdf)
+        pdf_controls.addWidget(self._pdf_upload_btn)
+
+        self._bank_mode_check = QCheckBox("Bank statement mode")
+        self._bank_mode_check.setChecked(True)
+        pdf_controls.addWidget(self._bank_mode_check)
+
+        self._accumulate_check = QCheckBox("Accumulate")
+        self._accumulate_check.setToolTip("Append new scan results to previous table data")
+        pdf_controls.addWidget(self._accumulate_check)
+
+        self._pdf_prompt = QLineEdit()
+        self._pdf_prompt.setPlaceholderText("Custom prompt (ignored in bank mode)...")
+        pdf_controls.addWidget(self._pdf_prompt, stretch=1)
+
+        self._scan_pdf_btn = QPushButton("Scan")
+        self._scan_pdf_btn.clicked.connect(self._scan_pdf)
+        pdf_controls.addWidget(self._scan_pdf_btn)
+
+        self._clear_pdf_btn = QPushButton("Clear")
+        self._clear_pdf_btn.clicked.connect(self._clear_pdf_results)
+        pdf_controls.addWidget(self._clear_pdf_btn)
+        pdf_layout.addLayout(pdf_controls)
+
+        pdf_info_row = QHBoxLayout()
+        self._pdf_label = QLabel("No PDF selected")
+        pdf_info_row.addWidget(self._pdf_label, stretch=1)
+        self._pdf_progress = QProgressBar()
+        self._pdf_progress.setVisible(False)
+        pdf_info_row.addWidget(self._pdf_progress, stretch=1)
+        pdf_layout.addLayout(pdf_info_row)
+
+        self._pdf_paths = []
+        self._pdf_table = None
+
+        layout.addWidget(pdf_group)
+
         # Output
         self._vision_output = QTextEdit()
         self._vision_output.setPlaceholderText("Analysis results will appear here...")
@@ -228,10 +277,8 @@ class OmniChatWindow(QMainWindow):
 
         # Save row
         save_row = QHBoxLayout()
-        self._save_name = QLineEdit()
-        self._save_name.setPlaceholderText("Filename (optional)")
-        save_row.addWidget(self._save_name)
-        self._save_btn = QPushButton("Save Output")
+        save_row.addStretch()
+        self._save_btn = QPushButton("Save As...")
         self._save_btn.clicked.connect(self._save_vision_output)
         save_row.addWidget(self._save_btn)
         layout.addLayout(save_row)
@@ -263,6 +310,22 @@ class OmniChatWindow(QMainWindow):
             self._session["repetition_penalty"],
             lambda v: self._session.__setitem__("repetition_penalty", v),
         )
+        self._top_p_spin = self._add_double_spin(
+            inf_layout, "Top-p (nucleus sampling):", 0.0, 1.0, 0.05,
+            self._session["top_p"],
+            lambda v: self._session.__setitem__("top_p", v),
+        )
+        self._top_k_spin = self._add_int_spin(
+            inf_layout, "Top-k:", 1, 500, 10,
+            self._session["top_k"],
+            lambda v: self._session.__setitem__("top_k", v),
+        )
+        self._thinking_check = QCheckBox("Enable thinking mode (chain-of-thought)")
+        self._thinking_check.setChecked(self._session["enable_thinking"])
+        self._thinking_check.toggled.connect(
+            lambda v: self._session.__setitem__("enable_thinking", v)
+        )
+        inf_layout.addWidget(self._thinking_check)
         layout.addWidget(inf_group)
 
         # Audio settings
@@ -581,7 +644,29 @@ class OmniChatWindow(QMainWindow):
         )
         if path:
             self._vid_path = path
-            self._vid_label.setText(Path(path).name)
+            # Show filename + brief info in label; full details in tooltip
+            name = Path(path).name
+            tip_lines = [path]
+            extra = ""
+            try:
+                from decord import VideoReader, cpu as decord_cpu
+                vr = VideoReader(path, ctx=decord_cpu(0))
+                fps = vr.get_avg_fps()
+                n_frames = len(vr)
+                dur = n_frames / fps if fps else 0
+                w, h = vr[0].shape[1], vr[0].shape[0]
+                mins, secs = divmod(int(dur), 60)
+                hrs, mins = divmod(mins, 60)
+                dur_str = f"{hrs}:{mins:02d}:{secs:02d}" if hrs else f"{mins}:{secs:02d}"
+                size_mb = Path(path).stat().st_size / (1024 * 1024)
+                extra = f" ({dur_str}, {w}x{h})"
+                tip_lines.append(f"Duration: {dur_str}  ({n_frames} frames)")
+                tip_lines.append(f"Resolution: {w}x{h}  |  FPS: {fps:.1f}")
+                tip_lines.append(f"Size: {size_mb:.1f} MB")
+            except Exception:
+                pass
+            self._vid_label.setText(name + extra)
+            self._vid_label.setToolTip("\n".join(tip_lines))
 
     def _analyze_image(self):
         if not self._img_path:
@@ -605,16 +690,23 @@ class OmniChatWindow(QMainWindow):
             def run(self):
                 from PIL import Image
                 image = Image.open(self._img_path).convert("RGB")
+                s = self._settings
                 if self._doc_mode:
                     prompt = self._prompt or "Extract all text from this document."
                     result = scan_document(image, prompt=prompt,
-                                           temperature=self._settings["temperature"],
-                                           max_new_tokens=self._settings["max_new_tokens"])
+                                           temperature=s["temperature"],
+                                           max_new_tokens=s["max_new_tokens"],
+                                           top_p=s.get("top_p", 0.8),
+                                           top_k=s.get("top_k", 100),
+                                           enable_thinking=s.get("enable_thinking", False))
                 else:
                     prompt = self._prompt or "Describe this image in detail."
                     result = scan_image(image, prompt=prompt,
-                                        temperature=self._settings["temperature"],
-                                        max_new_tokens=self._settings["max_new_tokens"])
+                                        temperature=s["temperature"],
+                                        max_new_tokens=s["max_new_tokens"],
+                                        top_p=s.get("top_p", 0.8),
+                                        top_k=s.get("top_k", 100),
+                                        enable_thinking=s.get("enable_thinking", False))
                 self.result_ready.emit(result["text"])
 
         worker = _Worker(self._img_path, self._img_prompt.text().strip(),
@@ -645,9 +737,13 @@ class OmniChatWindow(QMainWindow):
                 self._settings = settings
             def run(self):
                 prompt = self._prompt or "Describe what's happening in this video."
+                s = self._settings
                 result = analyze_video(self._vid_path, prompt=prompt,
-                                       temperature=self._settings["temperature"],
-                                       max_new_tokens=self._settings["max_new_tokens"])
+                                       temperature=s["temperature"],
+                                       max_new_tokens=s["max_new_tokens"],
+                                       top_p=s.get("top_p", 0.8),
+                                       top_k=s.get("top_k", 100),
+                                       enable_thinking=s.get("enable_thinking", False))
                 self.result_ready.emit(result["text"])
 
         worker = _Worker(self._vid_path, self._vid_prompt.text().strip(), self._session)
@@ -658,15 +754,176 @@ class OmniChatWindow(QMainWindow):
         worker.start()
         self._vid_worker = worker
 
+    def _upload_pdf(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select PDF(s)", "", "PDF Files (*.pdf)"
+        )
+        if paths:
+            self._pdf_paths = paths
+            from tools.vision.pdf_processor import get_page_count
+            total_pages = sum(get_page_count(p) for p in paths)
+            if len(paths) == 1:
+                self._pdf_label.setText(
+                    f"{Path(paths[0]).name} ({total_pages} pages)"
+                )
+            else:
+                self._pdf_label.setText(
+                    f"{len(paths)} files ({total_pages} pages total)"
+                )
+
+    def _scan_pdf(self):
+        if not self._pdf_paths:
+            self._vision_output.setPlainText("No PDF selected.")
+            return
+        self._vision_output.setPlainText("Scanning PDF...")
+        self._status.showMessage("Scanning PDF...")
+        self._pdf_progress.setVisible(True)
+        self._pdf_progress.setValue(0)
+        self._scan_pdf_btn.setEnabled(False)
+
+        from PySide6.QtCore import QThread as _QT
+
+        class _PDFWorker(_QT):
+            result_ready = Signal(str, object)
+            page_progress = Signal(int, int)
+
+            def __init__(self, pdf_paths, prompt, bank_mode, settings):
+                super().__init__()
+                self._pdf_paths = pdf_paths
+                self._prompt = prompt
+                self._bank_mode = bank_mode
+                self._settings = settings
+
+            def run(self):
+                from tools.vision.pdf_processor import (
+                    scan_pdf, scan_bank_statement, scan_multiple_pdfs,
+                )
+
+                def on_page(page, total):
+                    self.page_progress.emit(page, total)
+
+                if len(self._pdf_paths) == 1:
+                    if self._bank_mode:
+                        result = scan_bank_statement(
+                            self._pdf_paths[0], on_page_start=on_page,
+                        )
+                    else:
+                        result = scan_pdf(
+                            self._pdf_paths[0],
+                            prompt=self._prompt or None,
+                            temperature=self._settings["temperature"],
+                            max_new_tokens=self._settings["max_new_tokens"],
+                            on_page_start=on_page,
+                        )
+                    self.result_ready.emit(
+                        result["combined_text"], result["combined_table"]
+                    )
+                else:
+                    result = scan_multiple_pdfs(
+                        self._pdf_paths,
+                        prompt=self._prompt or None,
+                        bank_mode=self._bank_mode,
+                        temperature=self._settings["temperature"],
+                        max_new_tokens=self._settings["max_new_tokens"],
+                        on_page_start=on_page,
+                    )
+                    self.result_ready.emit(
+                        result["combined_text"], result["combined_table"]
+                    )
+
+        worker = _PDFWorker(
+            self._pdf_paths,
+            self._pdf_prompt.text().strip(),
+            self._bank_mode_check.isChecked(),
+            self._session,
+        )
+        worker.page_progress.connect(
+            lambda cur, total: self._pdf_progress.setValue(
+                int((cur + 1) / total * 100)
+            )
+        )
+        worker.result_ready.connect(self._on_pdf_done)
+        worker.start()
+        self._pdf_worker = worker
+
+    def _on_pdf_done(self, text, table):
+        from tools.vision.pdf_processor import merge_tables
+
+        self._vision_output.setPlainText(text)
+
+        if self._accumulate_check.isChecked() and self._pdf_table:
+            self._pdf_table = merge_tables(self._pdf_table, table)
+        else:
+            self._pdf_table = table
+
+        self._pdf_progress.setVisible(False)
+        self._scan_pdf_btn.setEnabled(True)
+        rows = (len(self._pdf_table) - 1) if self._pdf_table else 0
+        suffix = " (accumulated)" if self._accumulate_check.isChecked() else ""
+        self._status.showMessage(
+            f"PDF scan complete | {rows} data rows{suffix}"
+        )
+
+    def _clear_pdf_results(self):
+        self._pdf_table = None
+        self._pdf_paths = []
+        self._pdf_label.setText("No PDF selected")
+        self._vision_output.clear()
+        self._status.showMessage("PDF results cleared")
+
     def _save_vision_output(self):
         text = self._vision_output.toPlainText()
-        if not text.strip():
+        has_table = bool(self._pdf_table)
+        if not text.strip() and not has_table:
             self._status.showMessage("Nothing to save")
             return
-        from tools.output.save_output import save_auto
-        path = save_auto(text, fmt=self._session["output_format"],
-                         filename=self._save_name.text().strip() or None)
-        self._status.showMessage(f"Saved to: {path}")
+
+        # Build format filters — table formats only when table data exists
+        filters = []
+        if has_table:
+            filters.append("Excel Workbook (*.xlsx)")
+            filters.append("CSV - Comma separated (*.csv)")
+            filters.append("TSV - Tab separated (*.tsv)")
+        filters.append("Text file (*.txt)")
+        filters.append("Markdown (*.md)")
+
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self, "Save Output", "", ";;".join(filters),
+        )
+        if not file_path:
+            return
+
+        from tools.output.save_output import (
+            save_as_excel, save_as_csv, save_as_text, save_as_markdown,
+        )
+
+        # Check if file exists — offer to append
+        append = False
+        if Path(file_path).exists():
+            reply = QMessageBox.question(
+                self,
+                "File exists",
+                f"{Path(file_path).name} already exists.\n\n"
+                "Append to the existing file?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            )
+            if reply == QMessageBox.Cancel:
+                return
+            append = reply == QMessageBox.Yes
+
+        if selected_filter.startswith("Excel") and has_table:
+            save_as_excel(self._pdf_table, path=file_path, append=append)
+        elif selected_filter.startswith("CSV") and has_table:
+            save_as_csv(self._pdf_table, path=file_path, delimiter=",", append=append)
+        elif selected_filter.startswith("TSV") and has_table:
+            save_as_csv(self._pdf_table, path=file_path, delimiter="\t", append=append)
+        elif selected_filter.startswith("Markdown"):
+            save_as_markdown(text, path=file_path, append=append)
+        else:
+            save_as_text(text, path=file_path, append=append)
+
+        action = "Appended to" if append else "Saved to"
+        self._status.showMessage(f"{action}: {file_path}")
 
     # ── Voice Management ──────────────────────────────────────────────────
 
