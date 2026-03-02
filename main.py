@@ -67,7 +67,7 @@ def build_app(settings: dict) -> gr.Blocks:
     from tools.audio.voice_manager import get_voice, list_voices, add_voice, delete_voice
     from tools.audio.extract_voice import extract_audio_from_video
     from tools.audio.conversation import ConversationManager
-    from tools.vision.process_media import scan_image, scan_document, analyze_video
+    from tools.vision.process_media import scan_image, scan_document, analyze_video, transcribe_video
     from tools.vision.pdf_processor import (
         scan_pdf, scan_bank_statement, scan_multiple_pdfs,
         get_page_count, merge_tables,
@@ -92,6 +92,7 @@ def build_app(settings: dict) -> gr.Blocks:
         "top_p": inference.get("top_p", 0.8),
         "top_k": inference.get("top_k", 100),
         "enable_thinking": inference.get("enable_thinking", False),
+        "max_frames": inference.get("max_frames", 64),
         "output_format": output_cfg.get("default_format", "auto"),
         "streaming_enabled": streaming_cfg.get("enabled", True),
         "voice_sample_length_s": audio_cfg.get("voice_sample_length_s", 5.0),
@@ -668,10 +669,62 @@ def build_app(settings: dict) -> gr.Blocks:
             top_p=session_settings["top_p"],
             top_k=session_settings["top_k"],
             enable_thinking=session_settings["enable_thinking"],
+            max_frames=session_settings["max_frames"],
         )
 
         fmt_label = f"Detected format: {result['format']}"
         return result["text"], fmt_label
+
+    def process_video_transcribe(video_path, audio_path, prompt):
+        """Transcribe audio from a video or audio file with per-chunk streaming."""
+        import threading
+
+        # Use audio file if provided, otherwise fall back to video
+        media_path = audio_path or video_path
+        if media_path is None:
+            yield "No video or audio file provided.", ""
+            return
+
+        prompt = prompt.strip() if prompt else "Transcribe this audio completely and verbatim."
+
+        yield "Extracting audio...", "Preparing..."
+
+        # Run transcription on a separate thread so we can yield per-chunk updates
+        chunk_event = threading.Event()
+        state = {"text": "", "status": "", "done": False, "result": None}
+
+        def _on_chunk(idx, total, accumulated):
+            state["text"] = accumulated
+            state["status"] = f"Chunk {idx + 1}/{total}"
+            chunk_event.set()
+
+        def _run():
+            state["result"] = transcribe_video(
+                media_path,
+                prompt=prompt,
+                temperature=session_settings["temperature"],
+                max_new_tokens=session_settings["max_new_tokens"],
+                top_p=session_settings["top_p"],
+                top_k=session_settings["top_k"],
+                enable_thinking=session_settings["enable_thinking"],
+                on_chunk=_on_chunk,
+            )
+            state["done"] = True
+            chunk_event.set()
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        while not state["done"]:
+            chunk_event.wait(timeout=60)
+            chunk_event.clear()
+            if state["text"]:
+                yield state["text"], state["status"]
+
+        thread.join()
+        if state["result"]:
+            fmt_label = f"Detected format: {state['result']['format']}"
+            yield state["result"]["text"], fmt_label
 
     def process_pdf_upload(pdf_files, prompt, is_bank_statement, accumulate, progress=gr.Progress()):
         """Handle PDF upload -- supports multiple files and accumulation."""
@@ -878,6 +931,11 @@ def build_app(settings: dict) -> gr.Blocks:
         mode = "Enabled" if val else "Disabled"
         return f"Thinking mode: {mode}"
 
+    def update_max_frames(val):
+        """Update max video frames for video analysis."""
+        session_settings["max_frames"] = int(val)
+        return f"Max video frames: {int(val)}"
+
     def update_voice_sample_length(val):
         """Update how many seconds of the voice clip are sent to the model."""
         session_settings["voice_sample_length_s"] = val
@@ -1031,16 +1089,23 @@ def build_app(settings: dict) -> gr.Blocks:
                                 )
                                 vision_image_btn = gr.Button("Analyze Image", variant="primary")
 
-                            with gr.Tab("Video"):
+                            with gr.Tab("Video / Audio"):
                                 vision_video = gr.Video(
-                                    label="Upload video",
+                                    label="Upload video or audio file",
                                     sources=["upload"],
+                                )
+                                vision_audio = gr.Audio(
+                                    label="Or upload audio file directly",
+                                    sources=["upload"],
+                                    type="filepath",
                                 )
                                 vision_video_prompt = gr.Textbox(
                                     placeholder="Describe what's happening... (optional)",
                                     label="Prompt",
                                 )
-                                vision_video_btn = gr.Button("Analyze Video", variant="primary")
+                                with gr.Row():
+                                    vision_video_btn = gr.Button("Analyze Video", variant="primary")
+                                    vision_transcribe_btn = gr.Button("Transcribe Audio", variant="secondary")
 
                             with gr.Tab("PDF"):
                                 vision_pdf = gr.File(
@@ -1145,6 +1210,16 @@ def build_app(settings: dict) -> gr.Blocks:
                             label="Enable thinking mode",
                             value=session_settings["enable_thinking"],
                             info="Chain-of-thought reasoning. May improve complex tasks but uses more tokens.",
+                        )
+                        max_frames_slider = gr.Slider(
+                            minimum=8,
+                            maximum=512,
+                            step=8,
+                            value=session_settings["max_frames"],
+                            label="Max video frames",
+                            info="Frames sampled from video. More = better coverage, more VRAM. "
+                                 "64 \u2248 47 GB, 128 \u2248 72 GB, 256 \u2248 123 GB (bf16). "
+                                 "Videos shorter than this many seconds use all frames.",
                         )
                         voice_sample_slider = gr.Slider(
                             minimum=1.0,
@@ -1332,6 +1407,12 @@ def build_app(settings: dict) -> gr.Blocks:
             outputs=[vision_output, vision_format_label],
         )
 
+        vision_transcribe_btn.click(
+            fn=process_video_transcribe,
+            inputs=[vision_video, vision_audio, vision_video_prompt],
+            outputs=[vision_output, vision_format_label],
+        )
+
         vision_pdf_btn.click(
             fn=process_pdf_upload,
             inputs=[vision_pdf, vision_pdf_prompt, vision_bank_mode, vision_accumulate],
@@ -1395,6 +1476,12 @@ def build_app(settings: dict) -> gr.Blocks:
         thinking_toggle.change(
             fn=update_enable_thinking,
             inputs=[thinking_toggle],
+            outputs=[settings_status],
+        )
+
+        max_frames_slider.release(
+            fn=update_max_frames,
+            inputs=[max_frames_slider],
             outputs=[settings_status],
         )
 

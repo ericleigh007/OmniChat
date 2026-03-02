@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QLineEdit, QComboBox,
     QCheckBox, QDoubleSpinBox, QSpinBox, QGroupBox, QFileDialog,
-    QSplitter, QStatusBar, QProgressBar, QMessageBox,
+    QSplitter, QStatusBar, QProgressBar, QMessageBox, QScrollArea,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon, QPixmap, QColor
@@ -47,8 +47,10 @@ class OmniChatWindow(QMainWindow):
             "top_p": inference.get("top_p", 0.8),
             "top_k": inference.get("top_k", 100),
             "enable_thinking": inference.get("enable_thinking", False),
+            "max_frames": inference.get("max_frames", 64),
             "output_format": output_cfg.get("default_format", "auto"),
             "voice_sample_length_s": audio_cfg.get("voice_sample_length_s", 5.0),
+            "font_size": settings.get("display", {}).get("font_size", 12),
         }
         self._voice_ref = None
         self._voice_name = None
@@ -78,6 +80,9 @@ class OmniChatWindow(QMainWindow):
         icon_path = BASE_DIR / "assets" / "omnichat.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
+        # Apply configured font size, then set window size
+        self._apply_font_size(self._session.get("font_size", 12))
+        self.setMinimumSize(640, 480)
         self.resize(900, 700)
 
     # ── UI Setup ──────────────────────────────────────────────────────────
@@ -198,22 +203,22 @@ class OmniChatWindow(QMainWindow):
 
         self._img_preview = QLabel()
         self._img_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._img_preview.setFixedHeight(200)
+        self._img_preview.setMaximumHeight(200)
         self._img_preview.setStyleSheet("background-color: #2e2e3e; border-radius: 4px;")
         img_layout.addWidget(self._img_preview)
         self._img_path = None
 
         layout.addWidget(img_group)
 
-        # Video section
-        vid_group = QGroupBox("Video Analysis")
+        # Video / Audio section
+        vid_group = QGroupBox("Video / Audio")
         vid_layout = QHBoxLayout(vid_group)
 
-        self._vid_upload_btn = QPushButton("Upload Video")
+        self._vid_upload_btn = QPushButton("Upload")
         self._vid_upload_btn.clicked.connect(self._upload_video)
         vid_layout.addWidget(self._vid_upload_btn)
 
-        self._vid_label = QLabel("No video selected")
+        self._vid_label = QLabel("No file selected")
         vid_layout.addWidget(self._vid_label, stretch=1)
 
         self._vid_prompt = QLineEdit()
@@ -223,6 +228,10 @@ class OmniChatWindow(QMainWindow):
         self._analyze_vid_btn = QPushButton("Analyze")
         self._analyze_vid_btn.clicked.connect(self._analyze_video)
         vid_layout.addWidget(self._analyze_vid_btn)
+
+        self._transcribe_vid_btn = QPushButton("Transcribe")
+        self._transcribe_vid_btn.clicked.connect(self._transcribe_video)
+        vid_layout.addWidget(self._transcribe_vid_btn)
         self._vid_path = None
 
         layout.addWidget(vid_group)
@@ -289,7 +298,15 @@ class OmniChatWindow(QMainWindow):
 
     def _create_settings_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
 
         # Inference settings
         inf_group = QGroupBox("Inference")
@@ -327,6 +344,21 @@ class OmniChatWindow(QMainWindow):
         )
         inf_layout.addWidget(self._thinking_check)
         layout.addWidget(inf_group)
+
+        # Video settings
+        vid_group = QGroupBox("Video")
+        vid_layout = QVBoxLayout(vid_group)
+
+        self._max_frames_spin = self._add_int_spin(
+            vid_layout, "Max video frames:", 8, 512, 8,
+            self._session["max_frames"],
+            lambda v: self._update_max_frames(v),
+        )
+
+        self._vram_estimate_label = QLabel()
+        vid_layout.addWidget(self._vram_estimate_label)
+        self._update_vram_estimate(self._session["max_frames"])
+        layout.addWidget(vid_group)
 
         # Audio settings
         audio_group = QGroupBox("Audio")
@@ -394,7 +426,20 @@ class OmniChatWindow(QMainWindow):
         voice_layout.addLayout(del_row)
         layout.addWidget(voice_group)
 
+        # Display settings
+        display_group = QGroupBox("Display")
+        display_layout = QVBoxLayout(display_group)
+
+        self._font_size_spin = self._add_int_spin(
+            display_layout, "Font size:", 8, 32, 1,
+            self._session.get("font_size", 12),
+            self._apply_font_size,
+        )
+        layout.addWidget(display_group)
+
         layout.addStretch()
+        scroll.setWidget(inner)
+        tab_layout.addWidget(scroll)
         return tab
 
     # ── About Tab ─────────────────────────────────────────────────────────
@@ -465,6 +510,36 @@ class OmniChatWindow(QMainWindow):
         row.addWidget(spin)
         layout.addLayout(row)
         return spin
+
+    def _update_max_frames(self, val):
+        self._session["max_frames"] = val
+        self._update_vram_estimate(val)
+
+    def _update_vram_estimate(self, frames):
+        try:
+            import torch
+            total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            base_gb = torch.cuda.memory_allocated() / 1024**3
+        except Exception:
+            self._vram_estimate_label.setText(f"{frames} frames selected")
+            return
+        est_gb = base_gb + frames * 0.4
+        text = f"~{est_gb:.0f} GB estimated for {frames} frames ({total_gb:.0f} GB available)"
+        if est_gb > total_gb * 0.8:
+            self._vram_estimate_label.setStyleSheet("color: #f38ba8;")
+            text += " \u2014 may exceed VRAM!"
+        else:
+            self._vram_estimate_label.setStyleSheet("color: #a6adc8;")
+        self._vram_estimate_label.setText(text)
+
+    def _apply_font_size(self, size):
+        self._session["font_size"] = size
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            font = app.font()
+            font.setPointSize(size)
+            app.setFont(font)
 
     # ── Voice Chat Handlers ───────────────────────────────────────────────
 
@@ -631,16 +706,31 @@ class OmniChatWindow(QMainWindow):
             self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tiff)"
         )
         if path:
-            self._img_path = path
-            pixmap = QPixmap(path).scaled(
-                self._img_preview.width(), self._img_preview.height(),
-                Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
-            )
-            self._img_preview.setPixmap(pixmap)
+            resolved = Path(path).resolve()
+            # Read bytes first — triggers OneDrive hydration for cloud-only files
+            try:
+                img_bytes = resolved.read_bytes()
+            except OSError as e:
+                self._img_preview.setText("File not available (cloud-only?)")
+                self._status.showMessage(f"Cannot read file: {e}")
+                self._img_path = None
+                return
+            self._img_path = str(resolved)
+            pixmap = QPixmap()
+            pixmap.loadFromData(img_bytes)
+            if not pixmap.isNull():
+                pixmap = pixmap.scaled(
+                    self._img_preview.width(), self._img_preview.height(),
+                    Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+                )
+                self._img_preview.setPixmap(pixmap)
+            else:
+                self._img_preview.setText("Preview unavailable")
 
     def _upload_video(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Video", "", "Videos (*.mp4 *.avi *.mov *.mkv *.webm)"
+            self, "Select Video or Audio", "",
+            "Media (*.mp4 *.avi *.mov *.mkv *.webm *.wav *.mp3 *.ogg *.flac *.m4a *.wma *.aac)"
         )
         if path:
             self._vid_path = path
@@ -664,7 +754,13 @@ class OmniChatWindow(QMainWindow):
                 tip_lines.append(f"Resolution: {w}x{h}  |  FPS: {fps:.1f}")
                 tip_lines.append(f"Size: {size_mb:.1f} MB")
             except Exception:
-                pass
+                # Audio-only files won't have video frames — show file size
+                try:
+                    size_mb = Path(path).stat().st_size / (1024 * 1024)
+                    extra = f" ({size_mb:.1f} MB)"
+                    tip_lines.append(f"Size: {size_mb:.1f} MB")
+                except Exception:
+                    pass
             self._vid_label.setText(name + extra)
             self._vid_label.setToolTip("\n".join(tip_lines))
 
@@ -688,26 +784,31 @@ class OmniChatWindow(QMainWindow):
                 self._doc_mode = doc_mode
                 self._settings = settings
             def run(self):
-                from PIL import Image
-                image = Image.open(self._img_path).convert("RGB")
-                s = self._settings
-                if self._doc_mode:
-                    prompt = self._prompt or "Extract all text from this document."
-                    result = scan_document(image, prompt=prompt,
-                                           temperature=s["temperature"],
-                                           max_new_tokens=s["max_new_tokens"],
-                                           top_p=s.get("top_p", 0.8),
-                                           top_k=s.get("top_k", 100),
-                                           enable_thinking=s.get("enable_thinking", False))
-                else:
-                    prompt = self._prompt or "Describe this image in detail."
-                    result = scan_image(image, prompt=prompt,
-                                        temperature=s["temperature"],
-                                        max_new_tokens=s["max_new_tokens"],
-                                        top_p=s.get("top_p", 0.8),
-                                        top_k=s.get("top_k", 100),
-                                        enable_thinking=s.get("enable_thinking", False))
-                self.result_ready.emit(result["text"])
+                try:
+                    from PIL import Image
+                    from io import BytesIO
+                    img_bytes = Path(self._img_path).read_bytes()
+                    image = Image.open(BytesIO(img_bytes)).convert("RGB")
+                    s = self._settings
+                    if self._doc_mode:
+                        prompt = self._prompt or "Extract all text from this document."
+                        result = scan_document(image, prompt=prompt,
+                                               temperature=s["temperature"],
+                                               max_new_tokens=s["max_new_tokens"],
+                                               top_p=s.get("top_p", 0.8),
+                                               top_k=s.get("top_k", 100),
+                                               enable_thinking=s.get("enable_thinking", False))
+                    else:
+                        prompt = self._prompt or "Describe this image in detail."
+                        result = scan_image(image, prompt=prompt,
+                                            temperature=s["temperature"],
+                                            max_new_tokens=s["max_new_tokens"],
+                                            top_p=s.get("top_p", 0.8),
+                                            top_k=s.get("top_k", 100),
+                                            enable_thinking=s.get("enable_thinking", False))
+                    self.result_ready.emit(result["text"])
+                except Exception as e:
+                    self.result_ready.emit(f"Error: {e}\nPath: {self._img_path}")
 
         worker = _Worker(self._img_path, self._img_prompt.text().strip(),
                          self._doc_mode_check.isChecked(), self._session)
@@ -743,7 +844,8 @@ class OmniChatWindow(QMainWindow):
                                        max_new_tokens=s["max_new_tokens"],
                                        top_p=s.get("top_p", 0.8),
                                        top_k=s.get("top_k", 100),
-                                       enable_thinking=s.get("enable_thinking", False))
+                                       enable_thinking=s.get("enable_thinking", False),
+                                       max_frames=s.get("max_frames", 64))
                 self.result_ready.emit(result["text"])
 
         worker = _Worker(self._vid_path, self._vid_prompt.text().strip(), self._session)
@@ -753,6 +855,55 @@ class OmniChatWindow(QMainWindow):
         ))
         worker.start()
         self._vid_worker = worker
+
+    def _transcribe_video(self):
+        if not self._vid_path:
+            self._vision_output.setPlainText("No video selected.")
+            return
+        self._vision_output.setPlainText("Transcribing audio...")
+        self._status.showMessage("Transcribing audio...")
+
+        from PySide6.QtCore import QThread as _QT
+        from tools.vision.process_media import transcribe_video
+
+        class _Worker(_QT):
+            chunk_update = Signal(str, str)  # (accumulated_text, status_msg)
+            result_ready = Signal(str)
+            def __init__(self, vid_path, prompt, settings):
+                super().__init__()
+                self._vid_path = vid_path
+                self._prompt = prompt
+                self._settings = settings
+            def run(self):
+                prompt = self._prompt or "Transcribe this audio completely and verbatim."
+                s = self._settings
+
+                def _on_chunk(idx, total, accumulated):
+                    self.chunk_update.emit(
+                        accumulated,
+                        f"Transcribing chunk {idx + 1}/{total}...",
+                    )
+
+                result = transcribe_video(self._vid_path, prompt=prompt,
+                                          temperature=s["temperature"],
+                                          max_new_tokens=s["max_new_tokens"],
+                                          top_p=s.get("top_p", 0.8),
+                                          top_k=s.get("top_k", 100),
+                                          enable_thinking=s.get("enable_thinking", False),
+                                          on_chunk=_on_chunk)
+                self.result_ready.emit(result["text"])
+
+        worker = _Worker(self._vid_path, self._vid_prompt.text().strip(), self._session)
+        worker.chunk_update.connect(lambda text, status: (
+            self._vision_output.setPlainText(text),
+            self._status.showMessage(status),
+        ))
+        worker.result_ready.connect(lambda t: (
+            self._vision_output.setPlainText(t),
+            self._status.showMessage("Audio transcription complete"),
+        ))
+        worker.start()
+        self._transcribe_worker = worker
 
     def _upload_pdf(self):
         paths, _ = QFileDialog.getOpenFileNames(

@@ -957,6 +957,7 @@ def process_video(
     top_p: float = 0.8,
     top_k: int = 100,
     enable_thinking: bool = False,
+    max_frames: int = 64,
 ) -> dict:
     """
     Analyze a video file (with audio track).
@@ -1005,6 +1006,11 @@ def process_video(
             f"Failed to extract audio from video: {e.stderr.decode(errors='replace')}"
         ) from e
 
+    # Monkeypatch MAX_NUM_FRAMES so minicpmo uses our setting.
+    # It's a module-level constant that can't be passed as a parameter.
+    import minicpmo.utils as _mu
+    _orig_max_frames = _mu.MAX_NUM_FRAMES
+    _mu.MAX_NUM_FRAMES = max_frames
     try:
         video_frames, audio_segments, stacked_frames = get_video_frame_audio_segments(
             video_path,
@@ -1014,6 +1020,7 @@ def process_video(
             adjust_audio_length=True,
         )
     finally:
+        _mu.MAX_NUM_FRAMES = _orig_max_frames
         Path(temp_audio_path).unlink(missing_ok=True)
 
     # Build interleaved content: frame, audio, frame, audio, ...
@@ -1033,9 +1040,18 @@ def process_video(
 
     msgs.append({"role": "user", "content": omni_contents})
 
+    # model.chat() defaults max_inp_length=8192, but the model supports 40960
+    # position embeddings. With many video frames, 8192 is too small — the
+    # processor blindly truncates input_ids[:max_inp_length], which can cut
+    # paired audio tokens (audio_start without audio_end) causing an assertion
+    # error in processing_minicpmo.py. Scale the limit to fit all frames.
+    n_frames = len(video_frames)
+    max_inp_length = max(8192, min(n_frames * 300 + 2048, 40960))
+
     text = model.chat(
         msgs=msgs,
         max_new_tokens=max_new_tokens,
+        max_inp_length=max_inp_length,
         do_sample=True,
         temperature=temperature,
         repetition_penalty=repetition_penalty,
@@ -1062,6 +1078,107 @@ def process_video(
         result["sample_rate"] = sr
 
     return result
+
+
+def transcribe_audio(
+    video_path: str,
+    prompt: str = "Transcribe this audio completely and verbatim.",
+    temperature: float = 0.3,
+    max_new_tokens: int = 4096,
+    repetition_penalty: float = 1.05,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
+    chunk_seconds: int = 30,
+    on_chunk: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """
+    Transcribe audio from a video/audio file by sending raw audio to the model.
+
+    Pre-chunks audio into segments (default 30s) and transcribes each separately,
+    calling on_chunk after each so the UI can show progressive results.
+
+    Args:
+        video_path: Path to video or audio file.
+        prompt: Transcription instruction.
+        temperature: Low values (0.2-0.4) recommended for faithful transcription.
+        max_new_tokens: Max output tokens per chunk.
+        chunk_seconds: Length of each audio chunk in seconds (default 30).
+        on_chunk: Callback(chunk_index, total_chunks, accumulated_text) called
+                  after each chunk is transcribed.
+
+    Returns:
+        dict with text (full transcription).
+    """
+    model, _tok = get_model()
+
+    # Extract audio using imageio-ffmpeg's bundled binary
+    import tempfile
+    import subprocess
+    import imageio_ffmpeg
+    import soundfile as sf
+    import math
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    temp_audio = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    temp_audio_path = temp_audio.name
+    temp_audio.close()
+    try:
+        subprocess.run(
+            [ffmpeg_exe, "-y", "-i", video_path, "-vn", "-ac", "1",
+             "-ar", "16000", temp_audio_path],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        Path(temp_audio_path).unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Failed to extract audio: {e.stderr.decode(errors='replace')}"
+        ) from e
+
+    audio_data, sr = sf.read(temp_audio_path, dtype="float32")
+    Path(temp_audio_path).unlink(missing_ok=True)
+
+    # Split into chunks
+    samples_per_chunk = chunk_seconds * sr
+    total_samples = len(audio_data)
+    n_chunks = max(1, math.ceil(total_samples / samples_per_chunk))
+
+    chunks = []
+    for i in range(n_chunks):
+        start = int(i * samples_per_chunk)
+        end = int(min((i + 1) * samples_per_chunk, total_samples))
+        chunks.append(audio_data[start:end])
+
+    # Transcribe each chunk
+    all_parts = []
+    for i, chunk in enumerate(chunks):
+        _reset_for_generation(model, generate_audio=False, output_audio_path=None)
+
+        msgs = [{"role": "user", "content": [chunk, prompt]}]
+
+        text = model.chat(
+            msgs=msgs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=temperature,
+            repetition_penalty=repetition_penalty,
+            top_p=top_p,
+            top_k=top_k,
+            enable_thinking=enable_thinking,
+            generate_audio=False,
+            omni_mode=True,
+            max_slice_nums=1,
+            use_image_id=False,
+        )
+
+        all_parts.append(text.strip() if text else "")
+        accumulated = " ".join(all_parts)
+
+        if on_chunk:
+            on_chunk(i, n_chunks, accumulated)
+
+    full_text = " ".join(all_parts)
+    return {"text": full_text, "audio": None, "audio_path": None}
 
 
 # ── CLI test ──────────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for th
 
 - **Voice chat** — speak into your mic, get a spoken response
 - **Voice cloning** — type "use Morgan Freeman's voice" and it does
-- **Vision** — describe images, extract text from documents (OCR), analyze video, scan PDFs
+- **Vision** — describe images, extract text from documents (OCR), analyze video, transcribe audio, scan PDFs
 - **PDF scanning** — render PDF pages, OCR each page, merge tables across pages (bank statements, invoices)
 - **Save As** — export results as CSV, TSV, Excel, Markdown, or plain text with append support
 - **Streaming** — audio starts playing while the model is still generating
@@ -130,7 +130,9 @@ Voice samples are **not included in the repo** (copyright concerns). Supply your
 
 **Document OCR** — upload a document image. The system auto-detects whether the output is a table (pipe/tab-delimited), markdown, or plain text, and can save results as Excel, Markdown, or text files.
 
-**Video analysis** — upload a video file (MP4, AVI, MKV, MOV, WebM). The model processes both the visual frames and the audio track together. Works with any format decord/ffmpeg can handle.
+**Video analysis** — upload a video file (MP4, AVI, MKV, MOV, WebM). The model processes both the visual frames and the audio track together. Configurable max frames (8–512, default 64) with VRAM estimation. Works with any format decord/ffmpeg can handle.
+
+**Audio transcription** — upload a video or audio file (WAV, MP3, OGG, FLAC, M4A, etc.) and transcribe it directly. Extracts the audio track and sends it to the model, bypassing the frame-interleaved pipeline. Audio is pre-chunked into 30-second segments with progressive output — text appears as each chunk completes. Best for speech-heavy content where visual frames aren't needed.
 
 **PDF scanning** — upload one or more PDF files. Each page is rendered at 300 DPI and fed through the OCR pipeline. Tables are merged across pages with a single header row. Bank statement mode uses an optimized prompt for transaction extraction. Results can be saved as CSV, TSV, Excel, Markdown, or plain text — with append mode for accumulating multiple scans into one file.
 
@@ -208,9 +210,9 @@ Launch with `launch.bat` (or `python main.py`). Opens at `http://localhost:7860`
 
 **Voice Chat** — Two sections: continuous conversation (top) with start/stop and mode selector, and single-turn (bottom) with mic input, text box, streaming audio output, chat history (last 20 turns with live partial updates), and voice selector dropdown. A color-coded animated state indicator shows the current conversation state in real-time.
 
-**Vision** — Three subtabs: Image (upload or webcam, optional document/OCR mode), Video (upload MP4/AVI/MOV/MKV), and PDF (multi-file upload, bank statement mode, progress bar). Shared output panel with format auto-detection and Save As dialog (CSV, TSV, Excel, Markdown, text) with append support.
+**Vision** — Three subtabs: Image (upload or webcam, optional document/OCR mode), Video (upload MP4/AVI/MOV/MKV with Analyze and Transcribe buttons), and PDF (multi-file upload, bank statement mode, progress bar). Shared output panel with format auto-detection and Save As dialog (CSV, TSV, Excel, Markdown, text) with append support.
 
-**Settings** — Inference controls (temperature, max tokens, repetition penalty, top-p, top-k, thinking mode, voice sample length), conversation mode tuning (silence threshold, VAD sensitivity, echo cooldown, anti-vox boost, barge-in toggle), and voice management (upload from mic/file, extract from video clip with start time and duration, delete).
+**Settings** — Inference controls (temperature, max tokens, repetition penalty, top-p, top-k, thinking mode, max video frames with VRAM estimate, voice sample length), display settings (font size scaling for accessibility), conversation mode tuning (silence threshold, VAD sensitivity, echo cooldown, anti-vox boost, barge-in toggle), and voice management (upload from mic/file, extract from video clip with start time and duration, delete).
 
 ## Live Demo
 
@@ -258,7 +260,7 @@ All settings live in [`args/settings.yaml`](args/settings.yaml):
 | `model` | Model name, dtype, device, quantization |
 | `audio` | Sample rates, default voice, leveling/compression |
 | `voice_commands` | Enable/disable, fuzzy match threshold |
-| `inference` | Temperature, max tokens, sampling |
+| `inference` | Temperature, max tokens, sampling, max video frames |
 | `output` | Default save format, output directory |
 | `server` | Gradio host, port, public sharing |
 
@@ -275,7 +277,7 @@ python -m pytest tests/test_integration.py -v -s
 python -m pytest tests/ -v
 ```
 
-**276 unit tests** covering audio processing, format detection, voice commands, voice management, model manager logic, streaming player, conversation state machine, Gradio streaming, RT audio pipeline, shared session helpers, and output saving.
+**346 unit tests** covering audio processing, format detection, voice commands, voice management, model manager logic (including max_frames monkeypatching and audio transcription), streaming player, conversation state machine, Gradio streaming, RT audio pipeline, shared session helpers, and output saving.
 
 **23 GPU integration tests** covering text chat, TTS with default and cloned voices, multi-turn echo detection, streaming generation, and audio input handling.
 
@@ -321,7 +323,7 @@ OmniChat/
 │   ├── prompts.py             # Fixed prompts for comparison
 │   └── benchmark.bat          # Windows launcher
 ├── assets/                    # App icon (omnichat.ico)
-├── tests/                     # 340 unit + 23 GPU integration tests
+├── tests/                     # 346 unit + 23 GPU integration tests
 ├── goals/                     # Process definitions (GOTCHA framework)
 ├── context/                   # System prompts and domain knowledge
 └── outputs/                   # Saved results

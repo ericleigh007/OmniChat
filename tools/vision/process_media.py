@@ -12,14 +12,14 @@ structured results with auto-detected output format hints.
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from tools.model.model_manager import process_image, process_video, chat
+from tools.model.model_manager import process_image, process_video, chat, transcribe_audio
 
 
 # ── Format detection ─────────────────────────────────────────────────────────
@@ -221,6 +221,7 @@ def analyze_video(
     top_p: float = 0.8,
     top_k: int = 100,
     enable_thinking: bool = False,
+    max_frames: int = 64,
 ) -> dict:
     """
     Analyze a video file (frames + audio track).
@@ -243,6 +244,55 @@ def analyze_video(
         top_p=top_p,
         top_k=top_k,
         enable_thinking=enable_thinking,
+        max_frames=max_frames,
+    )
+
+    fmt = _detect_format(result["text"])
+    table = _parse_table(result["text"]) if fmt == "excel" else None
+
+    return {
+        "text": result["text"],
+        "format": fmt,
+        "table": table,
+        "audio": result.get("audio"),
+        "audio_path": result.get("audio_path"),
+        "sample_rate": result.get("sample_rate"),
+    }
+
+
+def transcribe_video(
+    video_path: str,
+    prompt: str = "Transcribe this audio completely and verbatim.",
+    temperature: float = 0.3,
+    max_new_tokens: int = 4096,
+    top_p: float = 0.8,
+    top_k: int = 100,
+    enable_thinking: bool = False,
+    on_chunk: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """
+    Transcribe audio from a video file by sending raw audio directly to the model.
+
+    Bypasses video frame sampling — sends the full audio track so the model hears
+    everything. Processes in 30-second chunks with per-chunk progress callbacks.
+
+    Args:
+        video_path: Path to video or audio file.
+        prompt: Transcription instruction.
+        on_chunk: Callback(chunk_index, total_chunks, accumulated_text).
+
+    Returns:
+        Same structure as analyze_video().
+    """
+    result = transcribe_audio(
+        video_path=video_path,
+        prompt=prompt,
+        temperature=temperature,
+        max_new_tokens=max_new_tokens,
+        top_p=top_p,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
+        on_chunk=on_chunk,
     )
 
     fmt = _detect_format(result["text"])

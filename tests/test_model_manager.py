@@ -633,3 +633,145 @@ class TestGetModelQuantizationBranching:
             # Should NOT call .cuda() (BNB handles device placement)
             mock_model.eval.assert_called_once()
             mock_model.cuda.assert_not_called()
+
+
+class TestProcessVideoMaxFrames:
+    """Tests for max_frames parameter monkeypatching in process_video()."""
+
+    def test_max_frames_default_is_64(self):
+        """Default max_frames should be 64."""
+        import inspect
+        import tools.model.model_manager as mm
+
+        sig = inspect.signature(mm.process_video)
+        assert sig.parameters["max_frames"].default == 64
+
+    def test_max_frames_monkeypatches_minicpmo(self):
+        """process_video() should set minicpmo.utils.MAX_NUM_FRAMES to max_frames."""
+        import minicpmo.utils as mu
+        import tools.model.model_manager as mm
+
+        captured_values = []
+        original_value = mu.MAX_NUM_FRAMES
+
+        def fake_get_frames(*args, **kwargs):
+            captured_values.append(mu.MAX_NUM_FRAMES)
+            return ([], [], None)
+
+        with patch.object(mm, "get_model") as mock_get_model, \
+             patch.object(mm, "_reset_for_generation"), \
+             patch("subprocess.run"), \
+             patch("tempfile.NamedTemporaryFile") as mock_tmp, \
+             patch("minicpmo.utils.get_video_frame_audio_segments", fake_get_frames), \
+             patch.object(mm, "Path"):
+            mock_model = MagicMock()
+            mock_model.chat.return_value = "test response"
+            mock_get_model.return_value = (mock_model, MagicMock())
+            mock_tmp.return_value.name = "/tmp/fake_audio.wav"
+
+            mm.process_video("fake_video.mp4", max_frames=128)
+
+        assert captured_values == [128], f"Expected MAX_NUM_FRAMES=128, got {captured_values}"
+        assert mu.MAX_NUM_FRAMES == original_value, "MAX_NUM_FRAMES should be restored"
+
+    def test_max_frames_restores_on_error(self):
+        """MAX_NUM_FRAMES should be restored even if frame extraction fails."""
+        import minicpmo.utils as mu
+        import tools.model.model_manager as mm
+
+        original_value = mu.MAX_NUM_FRAMES
+
+        def fake_get_frames_raise(*args, **kwargs):
+            raise RuntimeError("Simulated error")
+
+        with patch.object(mm, "get_model") as mock_get_model, \
+             patch.object(mm, "_reset_for_generation"), \
+             patch("subprocess.run"), \
+             patch("tempfile.NamedTemporaryFile") as mock_tmp, \
+             patch("minicpmo.utils.get_video_frame_audio_segments", fake_get_frames_raise), \
+             patch.object(mm, "Path"):
+            mock_get_model.return_value = (MagicMock(), MagicMock())
+            mock_tmp.return_value.name = "/tmp/fake_audio.wav"
+
+            with pytest.raises(RuntimeError, match="Simulated error"):
+                mm.process_video("fake_video.mp4", max_frames=256)
+
+        assert mu.MAX_NUM_FRAMES == original_value, "MAX_NUM_FRAMES should be restored after error"
+
+
+class TestTranscribeAudio:
+    """Tests for transcribe_audio() function."""
+
+    def test_signature_defaults(self):
+        """transcribe_audio() should have correct default parameters."""
+        import inspect
+        import tools.model.model_manager as mm
+
+        sig = inspect.signature(mm.transcribe_audio)
+        assert sig.parameters["temperature"].default == 0.3
+        assert sig.parameters["max_new_tokens"].default == 4096
+        assert sig.parameters["prompt"].default == "Transcribe this audio completely and verbatim."
+
+    def test_sends_audio_directly_to_model(self):
+        """transcribe_audio() should send raw audio array in message content."""
+        import tools.model.model_manager as mm
+
+        captured_msgs = []
+
+        def mock_chat(**kwargs):
+            captured_msgs.append(kwargs.get("msgs", []))
+            return "Transcribed text"
+
+        mock_model = MagicMock()
+        mock_model.chat = mock_chat
+
+        fake_audio = np.zeros(16000, dtype=np.float32)  # 1 second of silence
+
+        with patch.object(mm, "get_model") as mock_get_model, \
+             patch.object(mm, "_reset_for_generation"), \
+             patch("subprocess.run"), \
+             patch("tempfile.NamedTemporaryFile") as mock_tmp, \
+             patch("soundfile.read", return_value=(fake_audio, 16000)), \
+             patch.object(mm, "Path"):
+            mock_get_model.return_value = (mock_model, MagicMock())
+            mock_tmp.return_value.name = "/tmp/fake_audio.wav"
+
+            result = mm.transcribe_audio("fake_video.mp4")
+
+        assert result["text"] == "Transcribed text"
+        assert result["audio"] is None
+        assert len(captured_msgs) == 1
+        msg = captured_msgs[0][0]
+        assert msg["role"] == "user"
+        # Content should be [audio_array, prompt_string]
+        assert len(msg["content"]) == 2
+        assert isinstance(msg["content"][0], np.ndarray)
+        assert isinstance(msg["content"][1], str)
+
+    def test_no_voice_system_message(self):
+        """transcribe_audio() should NOT add voice system message."""
+        import tools.model.model_manager as mm
+
+        captured_msgs = []
+
+        def mock_chat(**kwargs):
+            captured_msgs.append(kwargs.get("msgs", []))
+            return "Text"
+
+        mock_model = MagicMock()
+        mock_model.chat = mock_chat
+
+        with patch.object(mm, "get_model") as mock_get_model, \
+             patch.object(mm, "_reset_for_generation"), \
+             patch("subprocess.run"), \
+             patch("tempfile.NamedTemporaryFile") as mock_tmp, \
+             patch("soundfile.read", return_value=(np.zeros(16000, dtype=np.float32), 16000)), \
+             patch.object(mm, "Path"):
+            mock_get_model.return_value = (mock_model, MagicMock())
+            mock_tmp.return_value.name = "/tmp/fake.wav"
+
+            mm.transcribe_audio("fake.mp4")
+
+        # Should have exactly 1 message (user), no system message
+        assert len(captured_msgs[0]) == 1
+        assert captured_msgs[0][0]["role"] == "user"

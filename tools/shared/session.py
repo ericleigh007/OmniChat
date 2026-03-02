@@ -36,7 +36,7 @@ def load_settings() -> dict:
         "inference": {
             "temperature": 0.7, "max_new_tokens": 2048, "do_sample": True,
             "repetition_penalty": 1.05, "top_p": 0.8, "top_k": 100,
-            "enable_thinking": False,
+            "enable_thinking": False, "max_frames": 64,
         },
         "output": {"default_format": "auto", "save_dir": "outputs"},
         "server": {"host": "localhost", "port": 7860, "share": False},
