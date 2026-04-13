@@ -6,13 +6,28 @@ Step-by-step instructions to get OmniChat running from a fresh clone.
 
 | Requirement | Details |
 |-------------|---------|
-| **Python** | 3.12 or later |
+| **Python** | 3.10, 3.11, or 3.12 |
 | **NVIDIA GPU** | 10+ GB VRAM (quantized) or 20+ GB (full precision) |
 | **CUDA** | 12.x with a compatible PyTorch build |
 | **OS** | Windows 11 (tested). Linux should work but is untested. |
 | **Disk space** | ~40 GB for the model (downloaded on first run, cached by HuggingFace) |
 
 Tested on: NVIDIA RTX PRO 6000 Blackwell (96 GB VRAM), Windows 11, Python 3.12.
+
+## Fast Path
+
+If you want the one-command bootstrap, run:
+
+```bash
+python setup.py
+```
+
+That script now:
+- creates or reuses the repo-local `.venv`
+- prefers Python 3.12, then 3.11, then 3.10 when building `.venv`
+- installs CUDA-enabled `torch` and `torchaudio` into `.venv`
+- installs the remaining requirements
+- verifies GPU visibility and warms the model cache
 
 ## Step 1: Clone the Repo
 
@@ -33,13 +48,15 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
+If you already ran `python setup.py`, you can skip manual venv creation because the script creates `.venv` for you.
+
 ## Step 3: Install PyTorch with CUDA
 
 PyTorch must be installed with CUDA support **before** the other dependencies. Check https://pytorch.org/get-started/locally/ for the command matching your CUDA version.
 
-For CUDA 12.x:
+For CUDA 12.x, the bootstrap script installs the pinned wheels automatically. The equivalent manual command is:
 ```bash
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu129
 ```
 
 Verify CUDA is working:
@@ -74,7 +91,7 @@ The model downloads automatically on first launch (~40 GB, cached at `~/.cache/h
 python -c "from huggingface_hub import snapshot_download; snapshot_download('openbmb/MiniCPM-o-4_5', allow_patterns=['*.json', '*.py', '*.safetensors', '*.txt', '*.model'])"
 ```
 
-Or just run setup (does all of the above checks):
+Or just run setup (creates or reuses `.venv`, installs CUDA PyTorch, installs the remaining requirements, then does the checks):
 ```bash
 python setup.py
 ```

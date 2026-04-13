@@ -80,7 +80,7 @@ See [SETUP.md](SETUP.md) for detailed step-by-step instructions including prereq
 ```bash
 cd OmniChat
 
-# 1. Setup (creates venv, installs deps, checks CUDA)
+# 1. Setup (creates or reuses .venv, installs CUDA PyTorch, installs deps, checks CUDA)
 python setup.py
 
 # 2. Launch the web UI
@@ -90,6 +90,8 @@ launch.bat
 # 3. Or run the live demo
 demo.bat --stream
 ```
+
+`setup.py` uses the repository-local `.venv` only. If your default `python` is not a supported version, it will create `.venv` with the first available supported interpreter it finds, preferring Python 3.12, then 3.11, then 3.10.
 
 ## Features
 
