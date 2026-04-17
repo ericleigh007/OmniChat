@@ -9,7 +9,7 @@ Two frontends share the same model and tools:
 | **Gradio Web UI** | `launch.bat` / `python main.py` | ~4-8s (HLS streaming) | Sharing, demos, remote access |
 | **PySide6 Desktop** | `launch_rt.bat` / `python rt_main.py` | ~1.5-2s (direct PCM) | Daily use, low-latency conversations |
 
-Only one can run at a time (single GPU). See [README_RT.md](README_RT.md) for the desktop app, or [SETUP.md](SETUP.md) for full build instructions.
+Only one can run at a time (single GPU). The desktop app also includes session recording, playback, and demo export; see [README_RT.md](README_RT.md) for the RT-specific workflow, or [SETUP.md](SETUP.md) for full build instructions.
 
 ---
 

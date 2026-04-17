@@ -1,0 +1,303 @@
+{
+  "default_profile": "gemma4_e4b_transformers_mincpm_tts",
+  "profiles": {
+    "minicpm_local": {
+      "display_name": "MiniCPM-o 4.5 Local",
+      "backend": "minicpm",
+      "transport": "local_transformers",
+      "name": "openbmb/MiniCPM-o-4_5",
+      "voice": {
+        "tts_mode": "cloned",
+        "supports_voice_clone": true
+      },
+      "dtype": "bfloat16",
+      "device": "cuda",
+      "quantization": "none",
+      "auto_update": true,
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Loads MiniCPM directly inside the Windows app process."
+      }
+    },
+    "qwen3_omni_wsl": {
+      "display_name": "Qwen3-Omni 30B A3B Instruct Remote (WSL/OpenAI API)",
+      "backend": "qwen_remote",
+      "transport": "openai_compatible",
+      "name": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+      "remote": {
+        "base_url": "http://127.0.0.1:8000/v1",
+        "api_key": null,
+        "model_name": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+        "timeout_s": 120,
+        "endpoints": {
+          "health": "/health",
+          "models": "models",
+          "chat_completions": "chat/completions",
+          "audio_transcriptions": "audio/transcriptions",
+          "audio_speech": "audio/speech",
+          "audio_voices": "audio/voices",
+          "responses": "responses",
+          "realtime": "realtime"
+        }
+      },
+      "launcher": {
+        "script": "launch_remote_wsl.bat",
+        "host_os": "windows",
+        "server_env": "wsl",
+        "wsl_distro": "Ubuntu-22.04",
+        "stage_config": "args/qwen3_omni_wsl_stage_config.yaml",
+        "supports": [
+          "--restart",
+          "--stop"
+        ]
+      }
+    },
+    "qwen3_omni_local": {
+      "display_name": "Qwen3-Omni 30B A3B Instruct Local (Transformers)",
+      "backend": "qwen_transformers",
+      "transport": "local_transformers",
+      "name": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+      "voice": {
+        "tts_mode": "builtin",
+        "supports_voice_clone": false,
+        "builtin_voice_name": "Ethan"
+      },
+      "device_map": "auto",
+      "torch_dtype": "bfloat16",
+      "attn_implementation": "sdpa",
+      "speaker": "Ethan",
+      "use_audio_in_video": true,
+      "local_files_only": false,
+      "quantization": "none",
+      "auto_update": true,
+      "inference": {
+        "temperature": 0.3,
+        "max_new_tokens": 192,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 1,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Loads Qwen3-Omni directly inside the Windows app process using Transformers."
+      }
+    },
+    "gemma4_e4b_transformers_local": {
+      "display_name": "Gemma 4 E4B IT Local (Transformers, native audio)",
+      "backend": "gemma_transformers",
+      "transport": "local_transformers",
+      "name": "Gemma 4 E4B IT",
+      "checkpoint": "D:\\OmniChatModels\\gemma4-e4b-it-official\\hf",
+      "device_map": "auto",
+      "torch_dtype": "bfloat16",
+      "attn_implementation": "sdpa",
+      "speech_backend": "none",
+      "use_audio_in_video": true,
+      "video_backend": "pyav",
+      "local_files_only": false,
+      "quantization": "none",
+      "auto_update": false,
+      "inference": {
+        "temperature": 0.2,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Loads Gemma 4 E4B IT directly inside the Windows app process using Transformers for native text, image, audio, and video input."
+      }
+    },
+    "gemma4_e4b_transformers_mincpm_tts": {
+      "display_name": "Gemma 4 E4B IT Local (Transformers) + MiniCPM 4.5 Streaming TTS",
+      "backend": "gemma_transformers",
+      "transport": "local_transformers",
+      "name": "Gemma 4 E4B IT",
+      "voice": {
+        "tts_mode": "cloned",
+        "supports_voice_clone": true
+      },
+      "checkpoint": "D:\\OmniChatModels\\gemma4-e4b-it-official\\hf",
+      "device_map": "auto",
+      "torch_dtype": "bfloat16",
+      "attn_implementation": "sdpa",
+      "speech_backend": "minicpm_streaming",
+      "use_audio_in_video": true,
+      "video_backend": "pyav",
+      "local_files_only": false,
+      "quantization": "none",
+      "auto_update": false,
+      "inference": {
+        "temperature": 0.2,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses local Gemma 4 E4B IT Transformers inference and streams spoken output through MiniCPM 4.5 TTS."
+      }
+    },
+    "qwen35_27b_llamacpp_local": {
+      "display_name": "Qwen3.5 27B Q4_K_M Local (llama.cpp, owned, text-only)",
+      "backend": "qwen_llamacpp",
+      "transport": "local_llamacpp_cli",
+      "name": "Qwen/Qwen3.5-27B",
+      "quantization": "none",
+      "auto_update": false,
+      "llama_cpp": {
+        "llama_root": "C:\\Users\\ericl\\AppData\\Local\\Temp\\llama-cpp-qwen35-test\\llama.cpp",
+        "cli_path": null,
+        "model_path": "D:\\OmniChatModels\\qwen35-27b-official\\gguf\\Qwen-Qwen3.5-27B-27B-Q4_K_M-00001-of-00002.gguf",
+        "mmproj_path": "D:\\OmniChatModels\\qwen35-27b-official\\gguf\\mmproj-Qwen-Qwen3.5-27B-F16.gguf",
+          "n_gpu_layers": 60,
+          "flash_attn": false,
+          "context_length": 4096,
+        "use_jinja": true,
+        "speech_backend": "none"
+      },
+      "inference": {
+        "temperature": 0.2,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses the owned local llama.cpp GGUF + mmproj artifacts staged on D: for A/B comparison."
+      }
+    },
+    "qwen35_27b_llamacpp_local_minicpm_tts": {
+      "display_name": "Qwen3.5 27B Q4_K_M Local (llama.cpp) + MiniCPM 4.5 Streaming TTS",
+      "backend": "qwen_llamacpp",
+      "transport": "local_llamacpp_cli",
+      "name": "Qwen/Qwen3.5-27B",
+      "voice": {
+        "tts_mode": "cloned",
+        "supports_voice_clone": true
+      },
+      "quantization": "none",
+      "auto_update": false,
+      "llama_cpp": {
+        "llama_root": "C:\\Users\\ericl\\AppData\\Local\\Temp\\llama-cpp-qwen35-test\\llama.cpp",
+        "cli_path": null,
+        "model_path": "D:\\OmniChatModels\\qwen35-27b-official\\gguf\\Qwen-Qwen3.5-27B-27B-Q4_K_M-00001-of-00002.gguf",
+        "mmproj_path": "D:\\OmniChatModels\\qwen35-27b-official\\gguf\\mmproj-Qwen-Qwen3.5-27B-F16.gguf",
+          "n_gpu_layers": 60,
+          "flash_attn": false,
+          "context_length": 4096,
+        "use_jinja": true,
+        "speech_backend": "minicpm_streaming"
+      },
+      "inference": {
+        "temperature": 0.2,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses owned local llama.cpp GGUF inference for Qwen3.5 27B and streams spoken output through MiniCPM 4.5 TTS for lower playback latency."
+      }
+    },
+    "gemma4_ssize_llamacpp_local": {
+      "display_name": "Gemma 4 S-Size Local (llama.cpp, multimodal)",
+      "backend": "gemma_llamacpp",
+      "transport": "local_llamacpp_cli",
+      "name": "Gemma 4 S-Size",
+      "quantization": "none",
+      "auto_update": false,
+      "llama_cpp": {
+        "llama_root": "C:\\Users\\ericl\\AppData\\Local\\Temp\\llama-cpp-gemma4-test\\llama.cpp",
+        "cli_path": null,
+        "model_path": "D:\\OmniChatModels\\gemma4-ssize-official\\gguf\\gemma4-ssize-it-Q4_K_M.gguf",
+        "mmproj_path": "D:\\OmniChatModels\\gemma4-ssize-official\\gguf\\mmproj-gemma4-ssize-it-f16.gguf",
+        "n_gpu_layers": 60,
+        "flash_attn": false,
+        "context_length": 4096,
+        "use_jinja": true,
+        "speech_backend": "none"
+      },
+      "inference": {
+        "temperature": 0.2,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses a local Gemma multimodal GGUF + mmproj path through llama.cpp for typed, image, and audio-input turns."
+      }
+    },
+    "gemma4_ssize_llamacpp_mincpm_tts": {
+      "display_name": "Gemma 4 S-Size Local (llama.cpp) + MiniCPM 4.5 Streaming TTS",
+      "backend": "gemma_llamacpp",
+      "transport": "local_llamacpp_cli",
+      "name": "Gemma 4 S-Size",
+      "voice": {
+        "tts_mode": "cloned",
+        "supports_voice_clone": true
+      },
+      "quantization": "none",
+      "auto_update": false,
+      "llama_cpp": {
+        "llama_root": "C:\\Users\\ericl\\AppData\\Local\\Temp\\llama-cpp-gemma4-test\\llama.cpp",
+        "cli_path": null,
+        "model_path": "D:\\OmniChatModels\\gemma4-ssize-official\\gguf\\gemma4-ssize-it-Q4_K_M.gguf",
+        "mmproj_path": "D:\\OmniChatModels\\gemma4-ssize-official\\gguf\\mmproj-gemma4-ssize-it-f16.gguf",
+        "n_gpu_layers": 60,
+        "flash_attn": false,
+        "context_length": 4096,
+        "use_jinja": true,
+        "speech_backend": "minicpm_streaming"
+      },
+      "inference": {
+        "temperature": 0.2,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses local Gemma multimodal GGUF inference through llama.cpp and streams spoken output through MiniCPM 4.5 TTS."
+      }
+    }
+  }
+}

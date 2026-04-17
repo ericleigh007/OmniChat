@@ -205,6 +205,13 @@ class TestAudioPipeline:
         pipe._inference_thread = None
         pipe._is_generating = False
         pipe._prev_state = None
+        pipe._active_trace_context = {}
+        pipe._generation_started_at = 0.0
+        pipe._generated_text_chars = 0
+        pipe._generated_audio_chunks = 0
+        pipe._pending_full_text = ""
+        pipe._drain_timer = None
+        pipe._progress_timer = MagicMock()
 
         # Mock signals
         pipe.state_changed = MagicMock()
@@ -214,6 +221,8 @@ class TestAudioPipeline:
         pipe.audio_chunk_ready = MagicMock()
         pipe.generation_started = MagicMock()
         pipe.generation_finished = MagicMock()
+        pipe.generation_progress = MagicMock()
+        pipe.generation_error = MagicMock()
 
         return pipe
 
@@ -342,6 +351,47 @@ class TestAudioPipeline:
         pipe._inference_thread.finished_signal.disconnect.assert_called_once()
         pipe._inference_thread.request_stop.assert_called_once()
         assert not pipe._is_generating
+
+    def test_stop_generation_cancels_active_drain_timer(self):
+        """Barge-in/manual stop should cancel any pending drain timer from the prior turn."""
+        pipe = self._make_pipeline()
+        pipe._is_generating = True
+        timer = MagicMock()
+        pipe._drain_timer = timer
+        pipe._inference_thread = MagicMock()
+        pipe._inference_thread.isRunning.return_value = False
+        pipe._pending_full_text = "stale"
+
+        pipe._stop_generation()
+
+        timer.stop.assert_called_once()
+        assert pipe._drain_timer is None
+        assert pipe._pending_full_text == ""
+
+    def test_on_model_error_cancels_active_drain_timer(self):
+        """Late errors after drain polling starts should stop the pending timer."""
+        pipe = self._make_pipeline()
+        timer = MagicMock()
+        pipe._drain_timer = timer
+
+        pipe._on_model_error("boom")
+
+        timer.stop.assert_called_once()
+        assert pipe._drain_timer is None
+
+    def test_check_drain_ignores_stale_timeout_after_barge_in(self):
+        """A queued drain-timeout callback after interruption should not finalize the old turn."""
+        pipe = self._make_pipeline()
+        timer = MagicMock()
+        pipe._drain_timer = timer
+        pipe._is_generating = False
+        pipe._pending_full_text = "old response"
+
+        pipe._check_drain()
+
+        timer.stop.assert_called_once()
+        pipe.generation_finished.emit.assert_not_called()
+        pipe.conv_mgr.on_model_done.assert_not_called()
 
     def test_emit_state_skips_unchanged(self):
         """_emit_state should not emit when state hasn't changed."""

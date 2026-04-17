@@ -49,3 +49,7 @@ User speaks into the microphone (stop_recording event) or submits text via the t
 - Voice command with no matching voice → list available voices
 - Fuzzy voice match → inform user which voice was selected
 - Model generates text but no audio file → return text only (no playback)
+
+## Recording Side Effects
+- When RT session recording is enabled, the turn also emits playback metadata through `tools/shared/session_recorder.py`
+- The recorded turn can contribute transcript text, timing offsets, optional MP3 artifacts, and optional session video metadata for later replay in the Playback tab

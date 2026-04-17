@@ -66,11 +66,39 @@ The state indicator shows the current conversation phase with color-coded dots:
 - **Responding** (purple) — model streaming audio response
 - **Ready** (orange) — response done, about to resume listening
 
-**Text-only mode:** When the conversation is stopped (OFF state), typing in the text box and pressing Enter or Send gets a text-only response from the model — no audio generated or played. Start the conversation to get spoken responses.
+**Request modality:** Typing in the text box stays text-only. Spoken output is reserved for audio-origin turns such as VAD-completed speech and push-to-talk release, where the model response is streamed into the TTS path.
 
 **Voice switching:** Select a voice from the dropdown to use a cloned voice. The status bar confirms the active voice.
 
 **Barge-in:** Start talking while the model is responding to interrupt it. The model stops generating and listens to your new input.
+
+### Session Recording And Playback
+
+The RT client can capture each conversation as a replayable session under `outputs/sessions/`. Recording supports metadata-only, structured audio, video-only, and structured-video modes, plus transcript policies for full, redacted, or omitted text. The playback tab discovers saved `session.json` manifests, rebuilds the transcript with the same shared chat renderer used by live chat, and replays overlay stats from the manifest timeline.
+
+![OmniChat RT Playback Tab](media/OmniChat-RT-Playback.png)
+
+The playback workflow supports:
+
+- Browsing saved sessions from the Playback tab or opening a specific manifest directly
+- Embedded playback of a recorded session video when multimedia support is available
+- JSON-driven overlay stats for turn, phase, prompt tokens, response tokens, and completion timing
+- Step-through review of replay events and transcript state
+- Export of stitched session audio or a demo-ready video artifact
+
+![OmniChat RT Playback Demo](media/OmniChat-RT-Playback.gif)
+
+Saved sessions are rooted at `outputs/sessions/<session-id>/` and may contain:
+
+- `session.json` for manifest metadata, timing, transcript, and export inputs
+- `session.mp4` when video capture is enabled
+- `turn_XXX_user.mp3` and `turn_XXX_model.mp3` when structured audio capture is enabled
+
+To refresh the playback media used in this README:
+
+```bash
+.venv/Scripts/python.exe tools/capture_rt_playback_assets.py --output-dir media
+```
 
 ### Vision
 
@@ -191,6 +219,12 @@ cd OmniChat
 ```
 
 All RT tests are mock-based — no GPU, no audio hardware, no PySide6 event loop required.
+
+Playback media generation is also covered by a focused regression test:
+
+```bash
+.venv/Scripts/python.exe -m pytest tests/test_capture_rt_playback_assets.py -q
+```
 
 ## Configuration
 

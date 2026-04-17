@@ -125,6 +125,101 @@ class TestBuildVoiceSystemMsg:
         np.testing.assert_array_equal(call_args.kwargs["ref_audio"], voice)
 
 
+class TestMiniCPMBlockingChatKwargs:
+    def test_audio_input_without_tts_enables_multimodal_chat_kwargs(self):
+        from tools.model.model_manager import _minicpm_blocking_chat_kwargs
+
+        audio = np.zeros(16000, dtype=np.float32)
+
+        kwargs = _minicpm_blocking_chat_kwargs(
+            [{"role": "user", "content": [audio, "Transcribe this."]}],
+            generate_audio=False,
+        )
+
+        assert kwargs == {
+            "omni_mode": True,
+            "max_slice_nums": 1,
+            "use_image_id": False,
+        }
+
+    def test_text_only_turn_does_not_enable_multimodal_chat_kwargs(self):
+        from tools.model.model_manager import _minicpm_blocking_chat_kwargs
+
+        kwargs = _minicpm_blocking_chat_kwargs(
+            [{"role": "user", "content": ["Hello"]}],
+            generate_audio=False,
+        )
+
+        assert kwargs == {}
+
+    def test_audio_output_turn_does_not_enable_transcription_kwargs(self):
+        from tools.model.model_manager import _minicpm_blocking_chat_kwargs
+
+        audio = np.zeros(16000, dtype=np.float32)
+
+        kwargs = _minicpm_blocking_chat_kwargs(
+            [{"role": "user", "content": [audio, "Please respond aloud."]}],
+            generate_audio=True,
+        )
+
+        assert kwargs == {}
+
+    def test_transcribe_audio_array_uses_multimodal_chat_kwargs(self):
+        import tools.model.model_manager as mm
+
+        model = MagicMock()
+        model.chat.return_value = "Transcribed text"
+
+        with patch.object(mm, "_get_minicpm_model", return_value=(model, MagicMock())), \
+             patch.object(mm, "_reset_for_generation"):
+            result = mm.transcribe_audio_array_with_minicpm(np.zeros(16000, dtype=np.float32))
+
+        assert result == "Transcribed text"
+        chat_kwargs = model.chat.call_args.kwargs
+        assert chat_kwargs["generate_audio"] is False
+        assert chat_kwargs["omni_mode"] is True
+        assert chat_kwargs["max_slice_nums"] == 1
+        assert chat_kwargs["use_image_id"] is False
+
+
+class TestEnsureGenerationCachePosition:
+    def test_preserves_existing_cache_position(self):
+        import tools.model.model_manager as mm
+
+        existing = np.array([3, 4, 5])
+
+        result = mm._ensure_generation_cache_position(cache_position=existing)
+
+        assert result is existing
+
+    def test_builds_from_input_ids_for_first_step(self):
+        import tools.model.model_manager as mm
+        import torch
+
+        input_ids = torch.zeros((1, 4), dtype=torch.long)
+
+        result = mm._ensure_generation_cache_position(input_ids=input_ids)
+
+        assert torch.equal(result, torch.arange(0, 4))
+
+    def test_builds_from_inputs_embeds_with_past_cache(self):
+        import tools.model.model_manager as mm
+        import torch
+
+        class _Past:
+            def get_seq_length(self):
+                return 6
+
+        inputs_embeds = torch.zeros((1, 3, 8), dtype=torch.float32)
+
+        result = mm._ensure_generation_cache_position(
+            inputs_embeds=inputs_embeds,
+            past_key_values=_Past(),
+        )
+
+        assert torch.equal(result, torch.arange(6, 9))
+
+
 class TestStaticNormalizer:
     """Test _normalize_rms (static normalizer for voice refs)."""
 
@@ -775,3 +870,64 @@ class TestTranscribeAudio:
         # Should have exactly 1 message (user), no system message
         assert len(captured_msgs[0]) == 1
         assert captured_msgs[0][0]["role"] == "user"
+
+
+def test_stream_text_to_speech_with_minicpm_logs_handoff_and_load_state(monkeypatch):
+    import tools.model.model_manager as mm
+
+    monkeypatch.setattr(mm, "_model", None)
+    stream_mock = MagicMock(return_value=iter(()))
+    logger_info = MagicMock()
+
+    monkeypatch.setattr(mm, "_minicpm_chat_streaming", stream_mock)
+    monkeypatch.setattr(mm.logger, "info", logger_info)
+
+    list(mm.stream_text_to_speech_with_minicpm(
+        "Hello world",
+        trace_context={"request_id": "trace-123"},
+        source_backend="qwen_llamacpp",
+    ))
+
+    stream_mock.assert_called_once()
+    prepare_call = logger_info.call_args_list[0]
+    assert prepare_call.args[0] == (
+        "trace_id=%s stage=tts event=minicpm_tts_prepare source_backend=%s load_state=%s text_chars=%d voice_ref=%s"
+    )
+    assert prepare_call.args[1:] == ("trace-123", "qwen_llamacpp", "cold-start", 11, False)
+
+
+def test_build_minicpm_tts_prompt_uses_number_verbalization_instruction_for_regular_text():
+    import tools.model.model_manager as mm
+
+    prompt = mm._build_minicpm_tts_prompt("Hello, world!")
+
+    assert prompt == "Speak this exactly, but convert any numbers to the words that represent them: Hello, world!"
+
+
+def test_build_minicpm_tts_prompt_uses_number_verbalization_instruction_for_numeric_text():
+    import tools.model.model_manager as mm
+
+    prompt = mm._build_minicpm_tts_prompt("10,000")
+
+    assert prompt == "Speak this exactly, but convert any numbers to the words that represent them: 10,000"
+
+
+def test_stream_text_to_speech_with_minicpm_uses_number_verbalization_prompt(monkeypatch):
+    import tools.model.model_manager as mm
+
+    captured_kwargs = {}
+
+    def _fake_stream(**kwargs):
+        captured_kwargs.update(kwargs)
+        if False:
+            yield None, ""
+        return iter(())
+
+    monkeypatch.setattr(mm, "_minicpm_chat_streaming", _fake_stream)
+
+    list(mm.stream_text_to_speech_with_minicpm("10,000"))
+
+    assert captured_kwargs["messages"] == [{
+        "role": "user",
+        "content": ["Speak this exactly, but convert any numbers to the words that represent them: 10,000"],
+    }]

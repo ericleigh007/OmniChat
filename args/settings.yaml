@@ -1,6 +1,8 @@
 # OmniChat settings — behavior configuration
 # Edit these to change how the assistant behaves.
 
+model_profile: "gemma4_e4b_transformers_mincpm_tts"
+
 model:
   name: "openbmb/MiniCPM-o-4_5"
   dtype: "bfloat16"

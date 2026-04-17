@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo     OMNICHAT — Multimodal Voice Assistant
+echo     OMNICHAT - Multimodal Voice Assistant
 echo ============================================
 echo.
 

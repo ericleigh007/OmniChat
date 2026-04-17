@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   OMNICHAT RT — Real-Time Desktop Client
+echo   OMNICHAT RT - Real-Time Desktop Client
 echo ============================================
 echo.
 

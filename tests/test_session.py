@@ -20,8 +20,11 @@ class TestLoadSettings:
         import tools.shared.session as session_mod
         monkeypatch.setattr(session_mod, "BASE_DIR", tmp_path)
         settings = load_settings()
-        assert settings["model"]["name"] == "openbmb/MiniCPM-o-4_5"
-        assert settings["inference"]["temperature"] == 0.7
+        assert settings["active_model_profile"] == "gemma4_e4b_transformers_mincpm_tts"
+        assert settings["model"]["backend"] == "gemma_transformers"
+        assert settings["model"]["checkpoint"] == r"D:\OmniChatModels\gemma4-e4b-it-official\hf"
+        assert settings["model"]["speech_backend"] == "minicpm_streaming"
+        assert settings["inference"]["temperature"] == 0.2
         assert settings["server"]["port"] == 7860
 
     def test_loads_from_yaml(self, tmp_path, monkeypatch):
@@ -33,8 +36,40 @@ class TestLoadSettings:
         )
         monkeypatch.setattr(session_mod, "BASE_DIR", tmp_path)
         settings = load_settings()
+        assert settings["model"]["backend"] == "gemma_transformers"
         assert settings["model"]["name"] == "test-model"
-        assert settings["inference"]["temperature"] == 0.5
+        assert settings["active_model_profile"] == "gemma4_e4b_transformers_mincpm_tts"
+        assert settings["model"]["speech_backend"] == "minicpm_streaming"
+        assert settings["inference"]["temperature"] == 0.2
+
+    def test_loads_explicit_gemma_default_profile_from_yaml(self, tmp_path, monkeypatch):
+        """A YAML-declared Gemma default profile should resolve with no CLI override."""
+        import tools.shared.session as session_mod
+
+        (tmp_path / "args").mkdir()
+        (tmp_path / "args" / "settings.yaml").write_text(
+            'model_profile: "gemma4_e4b_transformers_mincpm_tts"\n'
+        )
+        monkeypatch.setattr(session_mod, "BASE_DIR", tmp_path)
+
+        settings = load_settings()
+
+        assert settings["active_model_profile"] == "gemma4_e4b_transformers_mincpm_tts"
+        assert settings["model"]["backend"] == "gemma_transformers"
+        assert settings["model"]["speech_backend"] == "minicpm_streaming"
+
+    def test_resolves_builtin_gemma_llamacpp_profile(self, tmp_path, monkeypatch):
+        """Built-in Gemma llama.cpp profiles should resolve without any external JSON file."""
+        import tools.shared.session as session_mod
+
+        (tmp_path / "args").mkdir()
+        monkeypatch.setattr(session_mod, "BASE_DIR", tmp_path)
+
+        settings = load_settings(model_profile="gemma4_ssize_llamacpp_mincpm_tts")
+
+        assert settings["model_profile"] == "gemma4_ssize_llamacpp_mincpm_tts"
+        assert settings["model"]["backend"] == "gemma_llamacpp"
+        assert settings["model"]["llama_cpp"]["speech_backend"] == "minicpm_streaming"
 
 
 class TestNormalizeAudioInput:

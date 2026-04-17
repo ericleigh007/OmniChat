@@ -1,4 +1,4 @@
-transformers==4.51.0
+transformers==4.57.3
 accelerate
 torch>=2.3.0,<=2.8.0
 torchaudio<=2.8.0
@@ -6,6 +6,8 @@ minicpmo-utils[all]>=1.0.5
 bitsandbytes>=0.43.0
 librosa
 soundfile
+imageio-ffmpeg
+torchcodec
 gradio
 openpyxl
 Pillow

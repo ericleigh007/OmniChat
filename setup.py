@@ -11,7 +11,15 @@ setup.py — OmniChat first-run setup (idempotent, safe to re-run).
 import os
 import subprocess
 import sys
+from importlib import metadata as importlib_metadata
 from pathlib import Path
+
+try:
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+except ImportError:
+    from pip._vendor.packaging.requirements import Requirement
+    from pip._vendor.packaging.version import Version
 
 BASE_DIR = Path(__file__).parent.resolve()
 MODEL_NAME = "openbmb/MiniCPM-o-4_5"
@@ -130,7 +138,62 @@ def create_dirs():
     ok("All directories present")
 
 
+def _normalized_version(version_text):
+    return version_text.split("+", 1)[0]
+
+
+def _installed_version(distribution_name):
+    try:
+        return importlib_metadata.version(distribution_name)
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+
+def _iter_requirements(req_path):
+    for raw_line in req_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("-"):
+            continue
+        yield line
+
+
+def cuda_pytorch_satisfied():
+    torch_version = _installed_version("torch")
+    torchaudio_version = _installed_version("torchaudio")
+    return bool(
+        torch_version and _normalized_version(torch_version) == CUDA_TORCH_VERSION
+        and torchaudio_version and _normalized_version(torchaudio_version) == CUDA_TORCH_VERSION
+    )
+
+
+def requirements_satisfied(req_path):
+    if not req_path.exists():
+        return True, "requirements.txt not found"
+
+    for requirement_text in _iter_requirements(req_path):
+        requirement = Requirement(requirement_text)
+        installed_version = _installed_version(requirement.name)
+        if installed_version is None:
+            return False, f"Missing package: {requirement.name}"
+        if requirement.specifier and not requirement.specifier.contains(
+            Version(_normalized_version(installed_version)),
+            prereleases=True,
+        ):
+            return False, (
+                f"Installed {requirement.name}=={installed_version} does not satisfy "
+                f"{requirement.specifier}"
+            )
+
+    return True, "requirements satisfied"
+
+
 def install_cuda_pytorch():
+    if cuda_pytorch_satisfied():
+        ok(f"PyTorch already satisfies required runtime ({CUDA_TORCH_VERSION}, CUDA wheel env)")
+        return
+
     step("Installing CUDA-enabled PyTorch into .venv")
     run_checked([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
     run_checked(
@@ -149,11 +212,18 @@ def install_cuda_pytorch():
 
 
 def install_packages():
-    step("Installing Python packages")
     req = BASE_DIR / "requirements.txt"
     if not req.exists():
         warn("requirements.txt not found — skipping")
         return
+
+    ready, detail = requirements_satisfied(req)
+    if ready:
+        ok("Python packages already satisfy requirements.txt")
+        return
+
+    step("Installing Python packages")
+    warn(detail)
 
     run_checked([sys.executable, "-m", "pip", "install", "-r", str(req)])
     ok("All packages installed")
