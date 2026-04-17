@@ -2,7 +2,7 @@
 
 Native PySide6 desktop client for OmniChat. Plays audio directly via sounddevice with ~200ms output latency, cutting first-audio time from ~5s (Gradio HLS) to ~1.5-2s.
 
-Same model, same tools, same settings — just faster audio and a native UI.
+Same model-profile system, same tools, same settings — just faster audio and a native UI. The desktop client uses the profiles defined in `args/model_profiles.json`, so it is not limited to MiniCPM-only runs.
 
 ![OmniChat RT Desktop App](media/OmniChat-RT.png)
 

@@ -1,6 +1,6 @@
 # OmniChat
 
-Multimodal voice assistant powered by [MiniCPM-o 4.5](https://huggingface.co/openbmb/MiniCPM-o-4_5). Talk to it, show it images, feed it video — it sees, hears, and speaks.
+Multimodal voice assistant with a pluggable model profile system. OmniChat can run MiniCPM-o 4.5, Qwen3-Omni, Gemma 4, and llama.cpp-backed Qwen and Gemma profiles depending on the active configuration. Talk to it, show it images, feed it video, or pair text-first models with a speech-capable output path.
 
 Two frontends share the same model and tools:
 
@@ -27,6 +27,21 @@ Only one can run at a time (single GPU). The desktop app also includes session r
 - **Streaming** — audio starts playing while the model is still generating
 - **Continuous conversation** — hands-free back-and-forth with VAD, anti-vox echo suppression, and barge-in
 - **Web UI** — three-tab Gradio interface for chat, vision, and settings
+
+## Supported Models
+
+The source of truth for supported configurations is `args/model_profiles.json`.
+
+- **MiniCPM-o 4.5** — full local multimodal profile, including cloned-voice speech output
+- **Qwen3-Omni 30B A3B Instruct** — supported as a local Transformers profile and as a remote WSL/OpenAI-compatible profile
+- **Gemma 4 E4B IT** — supported as a local Transformers profile, with optional MiniCPM-backed streaming TTS
+- **Qwen3.5 27B via llama.cpp** — supported for local GGUF-based runs, with an optional MiniCPM-backed TTS path
+- **Gemma 4 S-Size via llama.cpp** — supported for local GGUF-based multimodal runs, with an optional MiniCPM-backed TTS path
+
+MiniCPM is still important here, but it is no longer the only model family. In the current profile set it serves two roles:
+
+- as a standalone end-to-end multimodal model
+- as the speech-capable TTS backend for profiles that use Gemma or Qwen for core inference but still need spoken playback or voice cloning
 
 ## Requirements
 
