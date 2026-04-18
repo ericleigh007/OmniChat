@@ -104,7 +104,8 @@ def ensure_local_venv():
 
     if not in_repo_venv():
         step("Re-launching setup inside repository-local .venv")
-        os.execv(str(venv_python()), [str(venv_python()), str(BASE_DIR / "setup.py")])
+        result = subprocess.run([str(venv_python()), str(BASE_DIR / "setup.py")])
+        raise SystemExit(result.returncode)
 
 
 def ok(msg):
