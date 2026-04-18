@@ -1,6 +1,6 @@
 # OmniChat
 
-Multimodal voice assistant with a pluggable model profile system. OmniChat can run MiniCPM-o 4.5, Qwen3-Omni, Gemma 4, and llama.cpp-backed Qwen and Gemma profiles depending on the active configuration. Talk to it, show it images, feed it video, or pair text-first models with a speech-capable output path.
+Multimodal voice assistant with a pluggable model profile system. OmniChat currently supports MiniCPM-o 4.5, Qwen3-Omni, Gemma 4 E4B IT, and a llama.cpp-backed Qwen3.5 profile, with larger Gemma 4 chat-only profiles planned. Talk to it, show it images, feed it video, or pair text-first models with a speech-capable output path.
 
 Two frontends share the same model and tools:
 
@@ -32,16 +32,16 @@ Only one can run at a time (single GPU). The desktop app also includes session r
 
 The source of truth for supported configurations is `args/model_profiles.json`.
 
-- **MiniCPM-o 4.5** — full local multimodal profile, including cloned-voice speech output
-- **Qwen3-Omni 30B A3B Instruct** — supported as a local Transformers profile and as a remote WSL/OpenAI-compatible profile
-- **Gemma 4 E4B IT** — supported as a local Transformers profile, with optional MiniCPM-backed streaming TTS
-- **Qwen3.5 27B via llama.cpp** — supported for local GGUF-based runs, with an optional MiniCPM-backed TTS path
-- **Gemma 4 S-Size via llama.cpp** — supported for local GGUF-based multimodal runs, with an optional MiniCPM-backed TTS path
+| Model Family | Size / Variant | Current Modalities | Speech Output | How It Is Accomplished |
+|--------------|----------------|--------------------|---------------|------------------------|
+| **MiniCPM-o 4.5** | 4.5 release | Text, image, audio input, video, speech cloning | Native cloned-voice output | Runs locally via Transformers as an end-to-end multimodal model. |
+| **Qwen3-Omni** | 30B A3B Instruct | Text, image, audio, video | Native built-in voice for local Transformers profile; remote server voice for WSL/OpenAI-compatible profile | Supported both as a local Transformers profile and as a remote backend hosted through the WSL/OpenAI-compatible server path. |
+| **Gemma 4** | E4B IT | Text, image, audio input, video | Either no speech output or MiniCPM-backed streaming TTS, depending on profile | Core inference runs through local Transformers; spoken playback is optional and, when enabled, is bridged through MiniCPM streaming TTS. |
+| **Qwen 3.5** | 27B Q4_K_M | Text today in the shipped llama.cpp profile | Optional MiniCPM-backed streaming TTS | Local GGUF inference runs through llama.cpp. The current checked-in profile is text-first, with MiniCPM available as the speech layer for spoken playback. |
 
-MiniCPM is still important here, but it is no longer the only model family. In the current profile set it serves two roles:
+MiniCPM is therefore one supported model family and also the current speech bridge for profiles that need cloned or streamed spoken output without using MiniCPM for core inference.
 
-- as a standalone end-to-end multimodal model
-- as the speech-capable TTS backend for profiles that use Gemma or Qwen for core inference but still need spoken playback or voice cloning
+Larger Gemma 4 variants are not checked in as supported profiles yet. The intended next step is chat-only support for those larger Gemma 4 models before any broader multimodal or spoken pipeline is added.
 
 ## Requirements
 
@@ -54,7 +54,7 @@ MiniCPM is still important here, but it is no longer the only model family. In t
 
 ### Quantization
 
-The model loads in bf16 by default (~19 GB VRAM). Quantization makes it accessible on smaller GPUs:
+This quantization section refers to the local **MiniCPM-o 4.5** path. That model loads in bf16 by default (~19 GB VRAM), and the MiniCPM quantized modes make it accessible on smaller GPUs:
 
 | Mode | VRAM | Method | Quality Impact |
 |------|------|--------|---------------|
@@ -79,14 +79,62 @@ model:
   quantization: "int8"   # none, int8, int4
 ```
 
-Both INT8 and INT4 use [bitsandbytes](https://github.com/bitsandbytes-foundation/bitsandbytes) on the same base model checkpoint — no separate download needed. INT4 uses NF4 (Normal Float 4) with double quantization.
+Both INT8 and INT4 use [bitsandbytes](https://github.com/bitsandbytes-foundation/bitsandbytes) on the same MiniCPM base checkpoint — no separate download needed. INT4 uses NF4 (Normal Float 4) with double quantization.
 
 **Research:** ["Give Me BF16 or Give Me Death?"](https://arxiv.org/html/2411.02355v3) (ACL 2025) found FP8/INT8 quantization essentially lossless across the Llama-3.1 family. See also [LLM Quantization: BF16 vs FP8 vs INT4](https://research.aimultiple.com/llm-quantization/) for broader benchmarks.
 
 **Important caveats:**
 - All published quality benchmarks are **text-only** (MMLU-Pro, etc.). Audio and speech generation quality under quantization has not been formally benchmarked by anyone. Audio tokens represent spectral features where numerical errors may compound audibly.
-- **INT8/INT4:** Only the LLM transformer layers are quantized. Audio (apm, tts), vision (vpm), resampler, and projection modules are kept in bf16 to preserve multimodal quality. If audio output sounds garbled under quantization, fall back to bf16.
+- **INT8/INT4 for MiniCPM:** Only the LLM transformer layers are quantized. Audio (apm, tts), vision (vpm), resampler, and projection modules are kept in bf16 to preserve multimodal quality. If audio output sounds garbled under quantization, fall back to bf16.
 - **If in doubt, use bf16.** Quantization is a VRAM tradeoff, not a free lunch. Text chat will work fine in all modes; audio/speech is the risk area.
+
+### Quantization Benchmarks And Findings
+
+We did not stop at generic text-only papers. For the local **MiniCPM-o 4.5** path, we ran our own quantization checks and did **not** find salient quality differences between bf16, int8, and int4 in the comparisons we performed.
+
+That conclusion is based on the benchmark tooling in the `benchmarks/` directory and the generated reports under `benchmark_outputs/`.
+
+#### Methods Used
+
+| Method | Script / Artifact | What It Measures |
+|--------|-------------------|------------------|
+| **Per-quant orchestrator** | `benchmarks/run_benchmark.py` | Runs bf16 (`none`), int8, and int4 in separate subprocesses so each quant level gets a clean model load and isolated VRAM measurement. |
+| **Single-quant worker** | `benchmarks/run_single_quant.py` | Loads MiniCPM once for one quant level, runs the full prompt suite, and writes raw text plus raw WAV output before the process exits. |
+| **Prompt suite definition** | `benchmarks/prompts.py` | Defines the fixed comparison tasks: echo prompts, text sanity prompts, non-streaming TTS prompts, and streaming TTS prompts. |
+| **Audio-metric analysis** | `benchmarks/analyze_results.py` | Computes duration, RMS, peak, spectral centroid, spectral bandwidth, spectral rolloff, and zero-crossing rate from the raw WAV outputs. |
+| **Spectrogram comparison** | `benchmarks/analyze_results.py` report output | Generates side-by-side mel spectrograms so quant variants can be visually compared over time and frequency. |
+| **Cross-run reports** | `benchmark_outputs/bench_*/report/report.md` | Summarizes VRAM, load time, text outputs, audio metrics, listening files, and spectrogram links for each quant run. |
+| **Cross-profile latency checks** | `benchmark_outputs/benchmark_comparison.md` and related JSON/MD files | Separate from quant quality checks; these compare backend/runtime behavior such as load time, first token/audio time, and task latency across profiles. |
+
+#### Prompt Types We Compared
+
+The quant benchmark suite is intentionally mixed so it can expose both obvious and subtle degradation:
+
+- **Echo prompts**: `echo_pangram` and `echo_counting` force near-identical intended spoken output across quant levels.
+- **Full audio-pipeline echo**: `echo_audio` repeats a supplied reference WAV and exercises the voice/audio path end to end.
+- **Deterministic text sanity**: `text_math` checks for stable exact-answer behavior.
+- **Longer text coherence**: `text_long` checks whether longer prose drifts or degrades.
+- **Short TTS**: `tts_greeting` checks basic spoken output quality.
+- **Longer TTS**: `tts_story` is intended to reveal time-accumulated degradation.
+- **Streaming TTS**: `stream_greeting` checks the chunked streaming path separately from the blocking path.
+
+#### How The Comparison Was Performed
+
+- Audio is compared as **raw model output**, before leveling and before fade-in smoothing, so post-processing does not hide quantization artifacts.
+- Each quant level is loaded in a fresh subprocess, which prevents one run from contaminating another and gives meaningful VRAM/load-time measurements.
+- We compare both **subjective listening output** and **objective signal measurements**.
+- We preserve the generated WAV files for direct listening and the text outputs for side-by-side inspection.
+- We generate mel spectrograms to catch artifacts that may be easy to miss in short listens.
+
+#### What We Observed
+
+In the MiniCPM quant checks currently in this repo, bf16, int8, and int4 remained close enough in audible behavior and in the recorded signal metrics that we did not find differences that stood out as salient in normal use. The benchmark suite is therefore meant to support this practical conclusion:
+
+- **bf16** remains the baseline and safest choice.
+- **int8** behaved close enough to bf16 that we treat it as the recommended reduced-VRAM option.
+- **int4** also held up better than expected in our checks, though it still carries the most risk if future prompts stress parts of the model we did not benchmark.
+
+That said, this is still an engineering judgment, not a universal law. If a future workload exposes audible defects, the retained raw WAVs, metrics, and spectrograms in `benchmark_outputs/` are the place to validate it.
 
 ## Quick Start
 

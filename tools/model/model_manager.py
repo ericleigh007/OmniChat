@@ -79,11 +79,11 @@ _QWEN_LLAMACPP_DEFAULTS = {
 }
 
 _GEMMA_LLAMACPP_DEFAULTS = {
-    "name": "Gemma 4 S-Size",
+    "name": "Gemma 4 (llama.cpp prototype)",
     "llama_root": str((Path(tempfile.gettempdir()) / "llama-cpp-gemma4-test" / "llama.cpp").resolve()),
     "cli_path": None,
-    "model_path": r"D:\OmniChatModels\gemma4-ssize-official\gguf\gemma4-ssize-it-Q4_K_M.gguf",
-    "mmproj_path": r"D:\OmniChatModels\gemma4-ssize-official\gguf\mmproj-gemma4-ssize-it-f16.gguf",
+    "model_path": r"D:\OmniChatModels\gemma4\gguf\model.gguf",
+    "mmproj_path": r"D:\OmniChatModels\gemma4\gguf\mmproj-f16.gguf",
     "n_gpu_layers": 99,
     "flash_attn": True,
     "context_length": 8192,

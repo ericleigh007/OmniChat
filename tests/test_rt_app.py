@@ -648,13 +648,13 @@ def test_rt_voice_turn_renders_spoken_markdown(rt_window_factory):
 
 def test_rt_history_uses_model_qualified_assistant_label(rt_window_factory):
     window = rt_window_factory(_minicpm_status(), "minicpm")
-    window._settings["model"] = {"backend": "gemma_llamacpp", "display_name": "Gemma 4 S-Size Local"}
+    window._settings["model"] = {"backend": "gemma_llamacpp", "display_name": "Gemma 4 llama.cpp Local"}
     window._chat_history = [("assistant", "Hello there")]
 
     window._update_history()
 
     history_html = window._history_display.toHtml()
-    assert "OmniChat [Gemma 4 S-Size Local]:" in history_html
+    assert "OmniChat [Gemma 4 llama.cpp Local]:" in history_html
 
 
 def test_rt_record_toggle_updates_session_recorder(rt_window_factory):
@@ -1029,7 +1029,7 @@ def test_rt_typed_chat_disables_audio_for_plain_gemma_even_in_conversation_mode(
     from tools.audio.conversation import ConversationState
 
     window = rt_window_factory(_qwen_status_with(backend="gemma_llamacpp"), "gemma_llamacpp")
-    window._settings["active_model_profile"] = "gemma4_ssize_llamacpp_local"
+    window._settings["active_model_profile"] = "gemma4_future_chat_only"
     window._settings["model"] = {
         "backend": "gemma_llamacpp",
         "llama_cpp": {"speech_backend": "none"},
@@ -1045,7 +1045,7 @@ def test_rt_typed_chat_disables_audio_for_plain_gemma_even_in_conversation_mode(
 
 def test_rt_typed_chat_keeps_audio_disabled_for_gemma_hybrid_in_conversation_mode(rt_window_factory):
     window = rt_window_factory(_qwen_status_with(backend="gemma_llamacpp"), "gemma_llamacpp")
-    window._settings["active_model_profile"] = "gemma4_ssize_llamacpp_mincpm_tts"
+    window._settings["active_model_profile"] = "gemma4_future_chat_only_with_mincpm_tts"
     window._settings["model"] = {
         "backend": "gemma_llamacpp",
         "llama_cpp": {"speech_backend": "minicpm_streaming"},

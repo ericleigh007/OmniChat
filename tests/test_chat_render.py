@@ -59,10 +59,10 @@ def test_render_chat_history_uses_custom_assistant_label():
         ("_partial", "working"),
     ]
 
-    html = render_chat_history_html(history, assistant_label="OmniChat [Gemma 4 S-Size]")
+    html = render_chat_history_html(history, assistant_label="OmniChat [Gemma 4 llama.cpp]")
 
-    assert "OmniChat [Gemma 4 S-Size]:" in html
-    assert "OmniChat [Gemma 4 S-Size] [Spoken Text]:" in html
+    assert "OmniChat [Gemma 4 llama.cpp]:" in html
+    assert "OmniChat [Gemma 4 llama.cpp] [Spoken Text]:" in html
 
 
 def test_render_chat_history_keeps_typed_assistant_text_non_italic():

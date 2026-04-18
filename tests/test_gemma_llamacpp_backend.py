@@ -16,7 +16,7 @@ def test_gemma_llamacpp_capabilities_report_native_audio_input(monkeypatch):
     monkeypatch.setattr(
         backend,
         "_get_backend_config",
-        lambda: {"name": "Gemma 4 S-Size", "speech_backend": "none", "llama_root": "C:/tmp"},
+        lambda: {"name": "Gemma 4 llama.cpp", "speech_backend": "none", "llama_root": "C:/tmp"},
     )
     monkeypatch.setattr(backend, "_resolve_server_path", lambda cfg: type("_Path", (), {"exists": lambda self: True})())
 

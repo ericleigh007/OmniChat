@@ -246,68 +246,6 @@ def _default_model_profiles() -> dict:
                     "notes": "Uses owned local llama.cpp GGUF inference for Qwen3.5 27B and streams spoken output through MiniCPM 4.5 TTS for lower playback latency.",
                 },
             },
-            "gemma4_ssize_llamacpp_local": {
-                "display_name": "Gemma 4 S-Size Local (llama.cpp, multimodal)",
-                "backend": "gemma_llamacpp",
-                "transport": "local_llamacpp_cli",
-                "name": "Gemma 4 S-Size",
-                "quantization": "none",
-                "auto_update": False,
-                "llama_cpp": {
-                    "llama_root": str((Path(tempfile.gettempdir()) / "llama-cpp-gemma4-test" / "llama.cpp").resolve()),
-                    "cli_path": None,
-                    "model_path": r"D:\OmniChatModels\gemma4-ssize-official\gguf\gemma4-ssize-it-Q4_K_M.gguf",
-                    "mmproj_path": r"D:\OmniChatModels\gemma4-ssize-official\gguf\mmproj-gemma4-ssize-it-f16.gguf",
-                    "n_gpu_layers": 99,
-                    "flash_attn": True,
-                    "context_length": 8192,
-                    "use_jinja": True,
-                    "speech_backend": "none",
-                },
-                "inference": {
-                    "temperature": 0.2,
-                    "max_new_tokens": 256,
-                    "repetition_penalty": 1.05,
-                    "top_p": 0.9,
-                    "top_k": 20,
-                    "enable_thinking": False,
-                },
-                "launcher": {
-                    "frontend_scripts": ["launch.bat", "launch_rt.bat"],
-                    "notes": "Uses a local llama.cpp Gemma multimodal GGUF + mmproj path for typed, image, and audio-input turns.",
-                },
-            },
-            "gemma4_ssize_llamacpp_mincpm_tts": {
-                "display_name": "Gemma 4 S-Size Local (llama.cpp) + MiniCPM 4.5 Streaming TTS",
-                "backend": "gemma_llamacpp",
-                "transport": "local_llamacpp_cli",
-                "name": "Gemma 4 S-Size",
-                "quantization": "none",
-                "auto_update": False,
-                "llama_cpp": {
-                    "llama_root": str((Path(tempfile.gettempdir()) / "llama-cpp-gemma4-test" / "llama.cpp").resolve()),
-                    "cli_path": None,
-                    "model_path": r"D:\OmniChatModels\gemma4-ssize-official\gguf\gemma4-ssize-it-Q4_K_M.gguf",
-                    "mmproj_path": r"D:\OmniChatModels\gemma4-ssize-official\gguf\mmproj-gemma4-ssize-it-f16.gguf",
-                    "n_gpu_layers": 99,
-                    "flash_attn": True,
-                    "context_length": 8192,
-                    "use_jinja": True,
-                    "speech_backend": "minicpm_streaming",
-                },
-                "inference": {
-                    "temperature": 0.2,
-                    "max_new_tokens": 256,
-                    "repetition_penalty": 1.05,
-                    "top_p": 0.9,
-                    "top_k": 20,
-                    "enable_thinking": False,
-                },
-                "launcher": {
-                    "frontend_scripts": ["launch.bat", "launch_rt.bat"],
-                    "notes": "Uses local Gemma multimodal GGUF inference through llama.cpp and streams spoken output through MiniCPM 4.5 TTS.",
-                },
-            },
         },
     }
 
@@ -424,12 +362,12 @@ def resolve_model_settings(
         llama_cpp.setdefault("use_jinja", True)
         llama_cpp.setdefault("timeout_s", 120.0)
     elif resolved_model.get("backend") == "gemma_llamacpp":
-        resolved_model.setdefault("name", "Gemma 4 S-Size")
+        resolved_model.setdefault("name", "Gemma 4 (llama.cpp prototype)")
         llama_cpp = resolved_model.setdefault("llama_cpp", {})
         llama_cpp.setdefault("llama_root", str((Path(tempfile.gettempdir()) / "llama-cpp-gemma4-test" / "llama.cpp").resolve()))
         llama_cpp.setdefault("cli_path", None)
-        llama_cpp.setdefault("model_path", r"D:\OmniChatModels\gemma4-ssize-official\gguf\gemma4-ssize-it-Q4_K_M.gguf")
-        llama_cpp.setdefault("mmproj_path", r"D:\OmniChatModels\gemma4-ssize-official\gguf\mmproj-gemma4-ssize-it-f16.gguf")
+        llama_cpp.setdefault("model_path", r"D:\OmniChatModels\gemma4\gguf\model.gguf")
+        llama_cpp.setdefault("mmproj_path", r"D:\OmniChatModels\gemma4\gguf\mmproj-f16.gguf")
         llama_cpp.setdefault("n_gpu_layers", 99)
         llama_cpp.setdefault("flash_attn", True)
         llama_cpp.setdefault("context_length", 8192)

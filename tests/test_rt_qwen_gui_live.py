@@ -129,8 +129,6 @@ def _run_desktop_probe(profile: str, tmp_path: Path) -> tuple[subprocess.Complet
     [
         ("qwen35_27b_llamacpp_local", 1500),
         ("qwen35_27b_llamacpp_local_minicpm_tts", 1800),
-        ("gemma4_ssize_llamacpp_local", 400),
-        ("gemma4_ssize_llamacpp_mincpm_tts", 400),
     ],
 )
 def test_rt_llamacpp_gui_profiles_complete_desktop_turn(profile: str, min_text_len: int, tmp_path: Path):

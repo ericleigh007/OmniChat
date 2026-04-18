@@ -170,31 +170,6 @@ def test_rt_main_lists_models(monkeypatch, capsys):
             "qwen_remote",
         ),
         (
-            "gemma4_ssize_llamacpp_local",
-            {
-                "audio": {"voices_dir": "voices"},
-                "model": {
-                    "backend": "gemma_llamacpp",
-                    "quantization": "none",
-                    "auto_update": False,
-                    "display_name": "Gemma Local",
-                    "name": "Gemma 4 S-Size",
-                    "llama_cpp": {
-                        "llama_root": "C:/tmp/llama.cpp",
-                        "cli_path": None,
-                        "model_path": "D:/OmniChatModels/gemma4/model.gguf",
-                        "mmproj_path": "D:/OmniChatModels/gemma4/mmproj.gguf",
-                        "n_gpu_layers": 60,
-                        "flash_attn": False,
-                        "context_length": 4096,
-                        "use_jinja": True,
-                        "speech_backend": "none",
-                    },
-                },
-            },
-            "gemma_llamacpp",
-        ),
-        (
             "gemma4_e4b_transformers_local",
             {
                 "audio": {"voices_dir": "voices"},

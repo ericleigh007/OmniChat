@@ -58,17 +58,17 @@ class TestLoadSettings:
         assert settings["model"]["backend"] == "gemma_transformers"
         assert settings["model"]["speech_backend"] == "minicpm_streaming"
 
-    def test_resolves_builtin_gemma_llamacpp_profile(self, tmp_path, monkeypatch):
-        """Built-in Gemma llama.cpp profiles should resolve without any external JSON file."""
+    def test_resolves_builtin_qwen_llamacpp_profile(self, tmp_path, monkeypatch):
+        """Built-in llama.cpp profiles should resolve without any external JSON file."""
         import tools.shared.session as session_mod
 
         (tmp_path / "args").mkdir()
         monkeypatch.setattr(session_mod, "BASE_DIR", tmp_path)
 
-        settings = load_settings(model_profile="gemma4_ssize_llamacpp_mincpm_tts")
+        settings = load_settings(model_profile="qwen35_27b_llamacpp_local_minicpm_tts")
 
-        assert settings["model_profile"] == "gemma4_ssize_llamacpp_mincpm_tts"
-        assert settings["model"]["backend"] == "gemma_llamacpp"
+        assert settings["model_profile"] == "qwen35_27b_llamacpp_local_minicpm_tts"
+        assert settings["model"]["backend"] == "qwen_llamacpp"
         assert settings["model"]["llama_cpp"]["speech_backend"] == "minicpm_streaming"
 
 
