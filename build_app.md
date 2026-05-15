@@ -1,12 +1,12 @@
 # OmniChat — Build Document
 
 ## Overview
-Multimodal voice assistant powered by MiniCPM-o 4.5 (9B parameters, unquantized).
+Multimodal voice assistant powered by selectable local and remote model profiles. Supported local paths now include MiniCPM-o 4.5, Gemma 4 E4B IT, Gemma 4 E4B IT with the MTP assistant drafter, and llama.cpp-backed Qwen3.5 profiles, plus Qwen3-Omni local/remote profiles.
 Talk via microphone, hear responses through speakers, switch to cloned voices on command,
-and send images/video for the model to interpret. Web UI via Gradio.
+and send images/video for the model to interpret. Web UI via Gradio and native RT UI via PySide6.
 
 ## Hardware Requirements
-- GPU: NVIDIA with >= 20GB VRAM (tested on RTX PRO 6000 Blackwell 96GB)
+- GPU: NVIDIA with >= 20GB VRAM (tested on RTX PRO 6000 Blackwell 96GB [cu120])
 - CUDA 12.x with PyTorch 2.x
 - Python 3.12+
 
@@ -14,7 +14,10 @@ and send images/video for the model to interpret. Web UI via Gradio.
 
 ```
 OmniChat/
-├── main.py                     # Entry point — loads model, builds Gradio UI (3 tabs)
+├── main.py                     # Entry point — loads model, builds Gradio UI
+├── rt_main.py                  # PySide6 desktop entry point
+├── rt_app.py                   # PySide6 desktop window and UI logic
+├── rt_audio.py                 # Desktop mic/VAD/model/speaker pipeline
 ├── setup.py                    # Idempotent first-run setup
 ├── launch.bat                  # Windows launcher
 ├── requirements.txt            # Python dependencies
@@ -25,7 +28,8 @@ OmniChat/
 ├── tools/
 │   ├── manifest.md             # Index of all tool scripts
 │   ├── model/
-│   │   └── model_manager.py    # Singleton model loader + chat/image/video inference
+│   │   ├── model_manager.py    # Singleton model loader + profile runtime config
+│   │   └── backends/           # MiniCPM, Qwen, Gemma, llama.cpp backend adapters
 │   ├── audio/
 │   │   └── voice_manager.py    # Voice sample lookup with fuzzy matching
 │   ├── vision/
@@ -33,6 +37,7 @@ OmniChat/
 │   └── output/
 │       └── save_output.py      # Save to markdown, text, or Excel
 ├── outputs/                    # Saved scan/OCR results
+├── benchmarks/                 # Quantization and Gemma MTP speed/quality benchmarks
 ├── goals/
 │   ├── manifest.md             # Index of goal workflows
 │   └── voice_conversation.md   # Voice chat process definition
@@ -70,6 +75,20 @@ OmniChat/
 - tools/manifest.md, goals/manifest.md, goals/voice_conversation.md
 - This build document
 
+### Phase F — Multi-Backend Runtime
+- Profile-driven runtime selection through `args/model_profiles.json`
+- Shared `tools/shared/session.py` model runtime configurator for Gradio, RT, demos, probes, and benchmarks
+- Gemma 4 E4B IT local Transformers backend with native text/image/audio/video input
+- MiniCPM streaming TTS bridge for models that need spoken output
+- **Verified**: baseline Gemma, Gemma+MiniCPM TTS, Gemma+MTP, and Gemma+MTP+MiniCPM TTS profiles load and run
+
+### Phase G — Gemma MTP Acceleration
+- Added optional Gemma MTP assistant model loading via `google/gemma-4-E4B-it-assistant`
+- Added profile-level switching between old Gemma and MTP Gemma
+- Runtime status reports `assistant_loaded` and `last_mtp_used`
+- **Verified**: 50-case multimodal speed/quality benchmark shows Gemma+MTP is 1.58x faster overall with no deterministic rubric-quality loss
+- **Verified**: full PySide6 app-borne seven-act demo passes with Gemma+MTP+MiniCPM TTS
+
 ## Key Design Decisions
 
 ### Voice Cloning
@@ -89,6 +108,31 @@ lists, code blocks), or 'text' (plain) to choose the best save format automatica
 Designed for future smartphone camera streaming. The vision pipeline accepts any
 input that provides frames/audio — adding `WiFiCameraSource` (RTSP/HTTP MJPEG)
 later requires only a new source class and a settings entry for the camera URL.
+
+### Gemma Input With MiniCPM Output
+Gemma profiles use Gemma for native text, image, audio, and video input. If spoken output is requested, OmniChat hands the generated text to MiniCPM streaming TTS. This keeps Gemma as the reasoning and perception model while using MiniCPM only for the audio generation capability Gemma does not provide.
+
+### MTP Speculative Decoding
+The MTP profile keeps the same Gemma 4 target checkpoint and adds the official assistant drafter. The assistant proposes tokens, but the target Gemma model remains authoritative. This is why the quality benchmark can compare speed and output parity directly against the old Gemma profile.
+
+## Benchmarks And Verification
+
+Current major verification artifacts:
+
+| Artifact | Purpose |
+|----------|---------|
+| `benchmark_outputs/gemma4_mtp_multimodal_2026-05-15/report/speed_quality_report.md` | README-ready speed and quality summary for old Gemma versus Gemma+MTP. |
+| `benchmark_outputs/gemma4_mtp_multimodal_2026-05-15/comparison.json` | Raw timing and response-preview comparison. |
+| `benchmark_outputs/gemma4_mtp_multimodal_2026-05-15/quality_comparison.json` | Deterministic rubric quality scores. |
+| `demo_outputs/rt_app_full_demo_2026-05-15/rt_full_demo_probe.json` | Full PySide6 app-borne seven-act demo result. |
+
+Commands:
+
+```bash
+.venv/Scripts/python.exe -m benchmarks.gemma_mtp_multimodal --max-new-tokens 96 --temperature 0.0 --output-dir benchmark_outputs/gemma4_mtp_multimodal_YYYY-MM-DD
+.venv/Scripts/python.exe -m benchmarks.evaluate_gemma_mtp_quality --bench-dir benchmark_outputs/gemma4_mtp_multimodal_YYYY-MM-DD
+.venv/Scripts/python.exe outputs/debug/rt_full_demo_probe.py --profile gemma4_e4b_transformers_mtp_mincpm_tts --output-dir demo_outputs/rt_app_full_demo_YYYY-MM-DD
+```
 
 ## Configuration (args/settings.yaml)
 

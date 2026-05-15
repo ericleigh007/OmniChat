@@ -1,13 +1,13 @@
 # OmniChat
 
-Multimodal voice assistant with a pluggable model profile system. OmniChat currently supports MiniCPM-o 4.5, Qwen3-Omni, Gemma 4 E4B IT, and a llama.cpp-backed Qwen3.5 profile, with larger Gemma 4 chat-only profiles planned. Talk to it, show it images, feed it video, or pair text-first models with a speech-capable output path.
+Multimodal voice assistant with a pluggable model profile system. OmniChat currently supports MiniCPM-o 4.5, Qwen3-Omni, Gemma 4 E4B IT, Gemma 4 E4B IT with MTP speculative decoding, and a llama.cpp-backed Qwen3.5 profile. Talk to it, show it images, feed it video, or pair text-first models with a speech-capable output path.
 
 Two frontends share the same model and tools:
 
 | Frontend | Launch | Latency | Best For |
 |----------|--------|---------|----------|
-| **Gradio Web UI** | `launch.bat` / `python main.py` | ~4-8s (HLS streaming) | Sharing, demos, remote access |
-| **PySide6 Desktop** | `launch_rt.bat` / `python rt_main.py` | ~1.5-2s (direct PCM) | Daily use, low-latency conversations |
+| **Gradio Web UI** | `launch.bat` / `.venv/Scripts/python.exe main.py` | ~4-8s (HLS streaming) | Sharing, demos, remote access |
+| **PySide6 Desktop** | `launch_rt.bat` / `.venv/Scripts/python.exe rt_main.py` | ~1.5-2s (direct PCM) | Daily use, low-latency conversations |
 
 Only one can run at a time (single GPU). The desktop app also includes session recording, playback, and demo export; see [README_RT.md](README_RT.md) for the RT-specific workflow, or [SETUP.md](SETUP.md) for full build instructions.
 
@@ -27,6 +27,7 @@ Only one can run at a time (single GPU). The desktop app also includes session r
 - **Streaming** — audio starts playing while the model is still generating
 - **Continuous conversation** — hands-free back-and-forth with VAD, anti-vox echo suppression, and barge-in
 - **Web UI** — three-tab Gradio interface for chat, vision, and settings
+- **Gemma MTP acceleration** — optional Gemma assistant-drafter profile for faster local Transformers inference while preserving the same target-model output path
 
 ## Supported Models
 
@@ -36,12 +37,26 @@ The source of truth for supported configurations is `args/model_profiles.json`.
 |--------------|----------------|--------------------|---------------|------------------------|
 | **MiniCPM-o 4.5** | 4.5 release | Text, image, audio input, video, speech cloning | Native cloned-voice output | Runs locally via Transformers as an end-to-end multimodal model. |
 | **Qwen3-Omni** | 30B A3B Instruct | Text, image, audio, video | Native built-in voice for local Transformers profile; remote server voice for WSL/OpenAI-compatible profile | Supported both as a local Transformers profile and as a remote backend hosted through the WSL/OpenAI-compatible server path. |
-| **Gemma 4** | E4B IT | Text, image, audio input, video | Either no speech output or MiniCPM-backed streaming TTS, depending on profile | Core inference runs through local Transformers; spoken playback is optional and, when enabled, is bridged through MiniCPM streaming TTS. |
+| **Gemma 4** | E4B IT baseline | Text, image, audio input, video | Either no speech output or MiniCPM-backed streaming TTS, depending on profile | Core inference runs through local Transformers; spoken playback is optional and, when enabled, is bridged through MiniCPM streaming TTS. |
+| **Gemma 4 + MTP** | E4B IT with assistant drafter | Text, image, audio input, video | Either no speech output or MiniCPM-backed streaming TTS, depending on profile | Uses the same Gemma 4 target model plus `google/gemma-4-E4B-it-assistant` for speculative decoding. Gemma handles input modalities; MiniCPM remains the output-audio bridge because Gemma does not generate speech. |
 | **Qwen 3.5** | 27B Q4_K_M | Text today in the shipped llama.cpp profile | Optional MiniCPM-backed streaming TTS | Local GGUF inference runs through llama.cpp. The current checked-in profile is text-first, with MiniCPM available as the speech layer for spoken playback. |
 
 MiniCPM is therefore one supported model family and also the current speech bridge for profiles that need cloned or streamed spoken output without using MiniCPM for core inference.
 
-Larger Gemma 4 variants are not checked in as supported profiles yet. The intended next step is chat-only support for those larger Gemma 4 models before any broader multimodal or spoken pipeline is added.
+Larger Gemma-family checkpoints are intentionally not a focus until they provide the multimodal surface OmniChat needs. The current priority is models and profiles that preserve useful speech/audio input plus image/video/document workflows; chat-only larger checkpoints are less relevant to OmniChat's core use case.
+
+### Gemma 4 Baseline And MTP Profiles
+
+Gemma has two local Transformers profile families:
+
+| Profile | Purpose |
+|---------|---------|
+| `gemma4_e4b_transformers_local` | Baseline Gemma 4 E4B IT with native text/image/audio/video input and no speech output. |
+| `gemma4_e4b_transformers_mincpm_tts` | Baseline Gemma 4 E4B IT with MiniCPM streaming TTS for spoken output. This is the default profile. |
+| `gemma4_e4b_transformers_mtp_local` | Gemma 4 E4B IT with the MTP assistant drafter and no speech output. |
+| `gemma4_e4b_transformers_mtp_mincpm_tts` | Gemma 4 E4B IT with the MTP assistant drafter plus MiniCPM streaming TTS. |
+
+Gemma mode uses Gemma for text, image, audio, and video input. Spoken output is always handled by MiniCPM when a Gemma speech profile is selected, because Gemma itself does not support audio generation. Runtime status reports `assistant_loaded` and `last_mtp_used` so live runs can confirm whether the MTP path was active.
 
 ## Requirements
 
@@ -271,7 +286,7 @@ audio:
 
 ## Web UI
 
-Launch with `launch.bat` (or `python main.py`). Opens at `http://localhost:7860`. Three tabs:
+Launch with `launch.bat` (or `.venv/Scripts/python.exe main.py`). Opens at `http://localhost:7860`. Three tabs:
 
 **Voice Chat** — Two sections: continuous conversation (top) with start/stop and mode selector, and single-turn (bottom) with mic input, text box, streaming audio output, chat history (last 20 turns with live partial updates), and voice selector dropdown. A color-coded animated state indicator shows the current conversation state in real-time.
 
@@ -304,6 +319,14 @@ demo.bat --quantization int8      # run with quantized model
 
 The demo also serves as a regression test via `pytest tests/test_demo_smoke.py`.
 
+The RT desktop path has its own app-borne full-demo probe. It instantiates the real `OmniChatWindow`, drives the seven demo capabilities through the PySide6 app pipeline, captures screenshots, and writes a JSON report:
+
+```bash
+.venv/Scripts/python.exe outputs/debug/rt_full_demo_probe.py --profile gemma4_e4b_transformers_mtp_mincpm_tts --output-dir demo_outputs/rt_app_full_demo_YYYY-MM-DD
+```
+
+Latest checked result: `7 passed, 0 failed`, with `assistant_loaded: true` and `last_mtp_used: true`. The reusable pytest wrapper is `tests/test_rt_full_demo_live.py`.
+
 ## Quantization Benchmarks
 
 Compare audio quality across bf16, int8, and int4 with spectrograms and metrics:
@@ -315,6 +338,55 @@ benchmarks\benchmark.bat --voice-ref voices\samantha_johansson.wav  # with voice
 ```
 
 Each quant level runs in a separate subprocess (model singleton can't reload). Outputs raw pre-leveling audio, mel spectrograms, and a markdown report with RMS, spectral centroid, bandwidth, and zero-crossing rate comparisons.
+
+## Gemma 4 MTP Speed And Quality Benchmark
+
+We added a dedicated 50-case head-to-head benchmark for old Gemma 4 E4B IT versus Gemma 4 E4B IT with the MTP assistant drafter. The benchmark covers text, image understanding, OCR/document extraction, audio input, audio input with spoken output, and text-to-speech output through the MiniCPM bridge.
+
+Run it with:
+
+```bash
+.venv/Scripts/python.exe -m benchmarks.gemma_mtp_multimodal --max-new-tokens 96 --temperature 0.0 --output-dir benchmark_outputs/gemma4_mtp_multimodal_YYYY-MM-DD
+```
+
+Evaluate saved output quality with:
+
+```bash
+.venv/Scripts/python.exe -m benchmarks.evaluate_gemma_mtp_quality --bench-dir benchmark_outputs/gemma4_mtp_multimodal_YYYY-MM-DD
+```
+
+Latest checked result:
+
+| Metric | Gemma 4 baseline | Gemma 4 + MTP | Result |
+|--------|-----------------:|--------------:|--------|
+| Total generation time | 185.879s | 117.447s | **1.58x faster** |
+| Mean generation time | 3.718s | 2.349s | Faster |
+| Median generation time | 2.421s | 1.199s | Faster |
+| Mean rubric quality | 0.926 | 0.926 | No measured loss |
+| Pairwise quality wins | 0 | 0 | 50 ties |
+| Mean text similarity | - | - | 0.969 |
+
+Speed by modality from the same run:
+
+| Modality | Cases | Speedup |
+|----------|------:|--------:|
+| OCR/document | 8 | **2.85x** |
+| Image | 12 | **2.72x** |
+| Text | 18 | **1.90x** |
+| Audio input | 4 | **1.34x** |
+| Audio output | 6 | **1.10x** |
+| Audio input + output | 2 | **0.96x** |
+
+The audio-output-heavy cases improve less because MiniCPM TTS dominates the end-to-end wall time after Gemma finishes text generation. The deterministic quality evaluator scored the saved outputs with case-specific rubrics and found no measured quality delta in this run. The combined README-ready report is:
+
+`benchmark_outputs/gemma4_mtp_multimodal_2026-05-15/report/speed_quality_report.md`
+
+Raw artifacts are saved beside it:
+
+- `comparison.json` and `comparison.csv` for speed and response previews
+- `quality_comparison.json` and `quality_comparison.csv` for rubric scores
+- Per-case `.txt` outputs for both variants
+- Generated image/OCR benchmark assets under `assets/`
 
 ## Configuration
 
@@ -333,18 +405,33 @@ All settings live in [`args/settings.yaml`](args/settings.yaml):
 
 ```bash
 # Unit tests (no GPU, ~4s)
-python -m pytest tests/ -v -m "not gpu"
+.venv/Scripts/python.exe -m pytest tests/ -v -m "not gpu"
 
 # GPU integration tests (requires model loaded, ~3 min)
-python -m pytest tests/test_integration.py -v -s
+.venv/Scripts/python.exe -m pytest tests/test_integration.py -v -s
 
 # Full suite
-python -m pytest tests/ -v
+.venv/Scripts/python.exe -m pytest tests/ -v
 ```
 
-**346 unit tests** covering audio processing, format detection, voice commands, voice management, model manager logic (including max_frames monkeypatching and audio transcription), streaming player, conversation state machine, Gradio streaming, RT audio pipeline, shared session helpers, and output saving.
+The unit suite covers audio processing, format detection, voice commands, voice management, model manager logic, streaming player, conversation state machine, Gradio streaming, RT audio pipeline, shared session helpers, output saving, benchmark helpers, and profile wiring.
 
-**23 GPU integration tests** covering text chat, TTS with default and cloned voices, multi-turn echo detection, streaming generation, and audio input handling.
+GPU integration tests cover text chat, TTS with default and cloned voices, multi-turn echo detection, streaming generation, audio input handling, full demo execution, and app-borne RT verification.
+
+Recent focused verification for the Gemma MTP work:
+
+```bash
+# Gemma MTP benchmark/report helpers plus backend MTP behavior
+.venv/Scripts/python.exe -m pytest tests/test_gemma_mtp_multimodal_benchmark.py tests/test_gemma_transformers_backend.py -v
+
+# Full RT app-borne demo plus RT UI regression tests
+.venv/Scripts/python.exe -m pytest tests/test_rt_full_demo_live.py tests/test_rt_app.py -v
+
+# Scripted 7-act demo through the demo runner
+.venv/Scripts/python.exe -m pytest tests/test_demo_smoke.py -v -s
+```
+
+The live RT app-borne demo and benchmark tests are GPU tests. On restricted Windows runners, set `PYTEST_DEBUG_TEMPROOT` inside the repo and disable pytest cache if the default temp/cache directories are not writable.
 
 ## Project Structure
 
@@ -385,10 +472,12 @@ OmniChat/
 │   ├── run_benchmark.py       # Orchestrator — runs all quant levels
 │   ├── run_single_quant.py    # Worker — loads model at one precision
 │   ├── analyze_results.py     # Spectrograms and audio metrics report
+│   ├── gemma_mtp_multimodal.py # 50-case Gemma baseline vs MTP benchmark
+│   ├── evaluate_gemma_mtp_quality.py # Deterministic quality scorer for Gemma MTP runs
 │   ├── prompts.py             # Fixed prompts for comparison
 │   └── benchmark.bat          # Windows launcher
 ├── assets/                    # App icon (omnichat.ico)
-├── tests/                     # 346 unit + 23 GPU integration tests
+├── tests/                     # Unit, integration, GPU, demo, and RT app-borne tests
 ├── goals/                     # Process definitions (GOTCHA framework)
 ├── context/                   # System prompts and domain knowledge
 └── outputs/                   # Saved results

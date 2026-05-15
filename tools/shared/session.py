@@ -143,6 +143,10 @@ def _default_model_profiles() -> dict:
                 "local_files_only": False,
                 "quantization": "none",
                 "auto_update": False,
+                "mtp_enabled": False,
+                "assistant_checkpoint": None,
+                "assistant_num_tokens": None,
+                "assistant_num_tokens_schedule": "heuristic",
                 "inference": {
                     "temperature": 0.2,
                     "max_new_tokens": 256,
@@ -182,6 +186,70 @@ def _default_model_profiles() -> dict:
                 "launcher": {
                     "frontend_scripts": ["launch.bat", "launch_rt.bat"],
                     "notes": "Uses local Gemma 4 E4B IT Transformers inference and streams spoken output through MiniCPM 4.5 TTS.",
+                },
+            },
+            "gemma4_e4b_transformers_mtp_mincpm_tts": {
+                "display_name": "Gemma 4 E4B IT Local (MTP, Transformers) + MiniCPM 4.5 Streaming TTS",
+                "backend": "gemma_transformers",
+                "transport": "local_transformers",
+                "name": "Gemma 4 E4B IT + MTP",
+                "checkpoint": r"D:\OmniChatModels\gemma4-e4b-it-official\hf",
+                "device_map": "auto",
+                "torch_dtype": "bfloat16",
+                "attn_implementation": "sdpa",
+                "speech_backend": "minicpm_streaming",
+                "use_audio_in_video": True,
+                "video_backend": "pyav",
+                "local_files_only": False,
+                "quantization": "none",
+                "auto_update": False,
+                "mtp_enabled": True,
+                "assistant_checkpoint": "google/gemma-4-E4B-it-assistant",
+                "assistant_num_tokens": 4,
+                "assistant_num_tokens_schedule": "heuristic",
+                "inference": {
+                    "temperature": 0.0,
+                    "max_new_tokens": 256,
+                    "repetition_penalty": 1.05,
+                    "top_p": 0.9,
+                    "top_k": 20,
+                    "enable_thinking": False,
+                },
+                "launcher": {
+                    "frontend_scripts": ["launch.bat", "launch_rt.bat"],
+                    "notes": "Uses local Gemma 4 E4B IT with the official MTP assistant drafter for speculative decoding, then streams spoken output through MiniCPM 4.5 TTS.",
+                },
+            },
+            "gemma4_e4b_transformers_mtp_local": {
+                "display_name": "Gemma 4 E4B IT Local (MTP, Transformers, native audio)",
+                "backend": "gemma_transformers",
+                "transport": "local_transformers",
+                "name": "Gemma 4 E4B IT + MTP",
+                "checkpoint": r"D:\OmniChatModels\gemma4-e4b-it-official\hf",
+                "device_map": "auto",
+                "torch_dtype": "bfloat16",
+                "attn_implementation": "sdpa",
+                "speech_backend": "none",
+                "use_audio_in_video": True,
+                "video_backend": "pyav",
+                "local_files_only": False,
+                "quantization": "none",
+                "auto_update": False,
+                "mtp_enabled": True,
+                "assistant_checkpoint": "google/gemma-4-E4B-it-assistant",
+                "assistant_num_tokens": 4,
+                "assistant_num_tokens_schedule": "heuristic",
+                "inference": {
+                    "temperature": 0.0,
+                    "max_new_tokens": 256,
+                    "repetition_penalty": 1.05,
+                    "top_p": 0.9,
+                    "top_k": 20,
+                    "enable_thinking": False,
+                },
+                "launcher": {
+                    "frontend_scripts": ["launch.bat", "launch_rt.bat"],
+                    "notes": "Uses local Gemma 4 E4B IT with the official MTP assistant drafter for speculative decoding and no separate TTS bridge.",
                 },
             },
             "qwen35_27b_llamacpp_local": {
@@ -284,6 +352,105 @@ def list_model_profiles() -> dict[str, dict]:
     return load_model_profiles().get("profiles", {})
 
 
+def configure_model_runtime(
+    settings: dict,
+    *,
+    backend_override: str | None = None,
+    quantization_override: str | None = None,
+) -> dict:
+    """Apply resolved model settings to tools.model.model_manager."""
+    from tools.model.model_manager import (
+        set_auto_update,
+        set_backend,
+        set_gemma_llamacpp_config,
+        set_gemma_transformers_config,
+        set_qwen_llamacpp_config,
+        set_qwen_remote_config,
+        set_qwen_transformers_config,
+        set_quantization,
+    )
+
+    model_settings = settings.get("model", {})
+    backend = backend_override or model_settings.get("backend", "minicpm")
+    set_backend(backend)
+    quant = quantization_override or model_settings.get("quantization", "none")
+    set_quantization(quant)
+    auto_update = model_settings.get("auto_update", True)
+    set_auto_update(auto_update)
+
+    if backend == "qwen_remote":
+        remote = model_settings.get("remote", {})
+        set_qwen_remote_config(
+            base_url=remote.get("base_url"),
+            api_key=remote.get("api_key"),
+            model_name=remote.get("model_name"),
+            timeout_s=remote.get("timeout_s"),
+            endpoints=remote.get("endpoints"),
+        )
+    elif backend == "qwen_transformers":
+        set_qwen_transformers_config(
+            checkpoint=model_settings.get("name"),
+            device_map=model_settings.get("device_map"),
+            torch_dtype=model_settings.get("torch_dtype"),
+            attn_implementation=model_settings.get("attn_implementation"),
+            speaker=model_settings.get("speaker"),
+            use_audio_in_video=model_settings.get("use_audio_in_video"),
+            local_files_only=model_settings.get("local_files_only", not auto_update),
+        )
+    elif backend == "gemma_transformers":
+        set_gemma_transformers_config(
+            checkpoint=model_settings.get("checkpoint"),
+            device_map=model_settings.get("device_map"),
+            torch_dtype=model_settings.get("torch_dtype"),
+            attn_implementation=model_settings.get("attn_implementation"),
+            speech_backend=model_settings.get("speech_backend"),
+            use_audio_in_video=model_settings.get("use_audio_in_video"),
+            local_files_only=model_settings.get("local_files_only", not auto_update),
+            video_backend=model_settings.get("video_backend"),
+            mtp_enabled=model_settings.get("mtp_enabled"),
+            assistant_checkpoint=model_settings.get("assistant_checkpoint"),
+            assistant_num_tokens=model_settings.get("assistant_num_tokens"),
+            assistant_num_tokens_schedule=model_settings.get("assistant_num_tokens_schedule"),
+        )
+    elif backend == "qwen_llamacpp":
+        llama_cpp = model_settings.get("llama_cpp", {})
+        set_qwen_llamacpp_config(
+            name=model_settings.get("name"),
+            llama_root=llama_cpp.get("llama_root"),
+            cli_path=llama_cpp.get("cli_path"),
+            model_path=llama_cpp.get("model_path"),
+            mmproj_path=llama_cpp.get("mmproj_path"),
+            n_gpu_layers=llama_cpp.get("n_gpu_layers"),
+            flash_attn=llama_cpp.get("flash_attn"),
+            context_length=llama_cpp.get("context_length"),
+            use_jinja=llama_cpp.get("use_jinja"),
+            speech_backend=llama_cpp.get("speech_backend"),
+            timeout_s=llama_cpp.get("timeout_s"),
+        )
+    elif backend == "gemma_llamacpp":
+        llama_cpp = model_settings.get("llama_cpp", {})
+        set_gemma_llamacpp_config(
+            name=model_settings.get("name"),
+            llama_root=llama_cpp.get("llama_root"),
+            cli_path=llama_cpp.get("cli_path"),
+            model_path=llama_cpp.get("model_path"),
+            mmproj_path=llama_cpp.get("mmproj_path"),
+            n_gpu_layers=llama_cpp.get("n_gpu_layers"),
+            flash_attn=llama_cpp.get("flash_attn"),
+            context_length=llama_cpp.get("context_length"),
+            use_jinja=llama_cpp.get("use_jinja"),
+            speech_backend=llama_cpp.get("speech_backend"),
+            timeout_s=llama_cpp.get("timeout_s"),
+        )
+
+    return {
+        "backend": backend,
+        "quantization": quant,
+        "auto_update": auto_update,
+        "model_label": model_settings.get("display_name") or model_settings.get("name", "unknown"),
+    }
+
+
 def resolve_model_settings(
     settings: dict,
     *,
@@ -349,6 +516,10 @@ def resolve_model_settings(
         resolved_model.setdefault("speech_backend", "none")
         resolved_model.setdefault("use_audio_in_video", True)
         resolved_model.setdefault("local_files_only", not resolved_model.get("auto_update", True))
+        resolved_model.setdefault("mtp_enabled", False)
+        resolved_model.setdefault("assistant_checkpoint", None)
+        resolved_model.setdefault("assistant_num_tokens", None)
+        resolved_model.setdefault("assistant_num_tokens_schedule", "heuristic")
     elif resolved_model.get("backend") == "qwen_llamacpp":
         resolved_model.setdefault("name", "Qwen/Qwen3.5-27B")
         llama_cpp = resolved_model.setdefault("llama_cpp", {})

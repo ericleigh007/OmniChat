@@ -1,4 +1,4 @@
-"""Quantization benchmark orchestrator.
+"""Benchmark orchestrator.
 
 Spawns one Python subprocess per quantization level (sequential — one GPU model
 at a time), then generates the comparison report with spectrograms.
@@ -20,6 +20,18 @@ PYTHON = sys.executable
 BASE_DIR = Path(__file__).parent.parent.resolve()
 
 QUANT_LABELS = {"none": "bf16", "int8": "int8", "int4": "int4"}
+VARIANT_LABELS = {
+    "gemma_baseline": {
+        "label": "gemma4-baseline",
+        "profile": "gemma4_e4b_transformers_local",
+        "gemma_mtp": "off",
+    },
+    "gemma_mtp": {
+        "label": "gemma4-mtp",
+        "profile": "gemma4_e4b_transformers_mtp_local",
+        "gemma_mtp": "on",
+    },
+}
 
 
 def main():
@@ -29,12 +41,24 @@ def main():
         help="Comma-separated quantization levels (default: none,int8,int4)"
     )
     parser.add_argument(
+        "--variants", default=None,
+        help="Comma-separated benchmark variants. Use gemma_baseline,gemma_mtp for the Gemma MTP comparison."
+    )
+    parser.add_argument(
+        "--model-profile", default=None,
+        help="Configured model profile id for quantization runs."
+    )
+    parser.add_argument(
         "--voice-ref", default=None,
         help="Path to voice reference WAV for echo_audio and cloned-voice tests"
     )
     parser.add_argument(
         "--temperature", type=float, default=0.3,
         help="Sampling temperature (default: 0.3 for deterministic comparison)"
+    )
+    parser.add_argument(
+        "--max-new-tokens", type=int, default=256,
+        help="Maximum generated tokens per prompt (default: 256)"
     )
     parser.add_argument(
         "--output-dir", default=None,
@@ -46,12 +70,28 @@ def main():
     )
     args = parser.parse_args()
 
-    quants = [q.strip() for q in args.quants.split(",")]
-    for q in quants:
-        if q not in QUANT_LABELS:
-            print(f"ERROR: Unknown quantization level: {q!r}")
-            print(f"  Valid levels: {', '.join(QUANT_LABELS.keys())}")
-            sys.exit(1)
+    if args.variants:
+        runs = []
+        for variant in [v.strip() for v in args.variants.split(",")]:
+            if variant not in VARIANT_LABELS:
+                print(f"ERROR: Unknown variant: {variant!r}")
+                print(f"  Valid variants: {', '.join(VARIANT_LABELS.keys())}")
+                sys.exit(1)
+            runs.append(VARIANT_LABELS[variant])
+    else:
+        runs = []
+        quants = [q.strip() for q in args.quants.split(",")]
+        for q in quants:
+            if q not in QUANT_LABELS:
+                print(f"ERROR: Unknown quantization level: {q!r}")
+                print(f"  Valid levels: {', '.join(QUANT_LABELS.keys())}")
+                sys.exit(1)
+            runs.append({
+                "label": QUANT_LABELS[q],
+                "quant": q,
+                "profile": args.model_profile,
+                "gemma_mtp": None,
+            })
 
     # Create timestamped output directory
     if args.output_dir:
@@ -66,7 +106,7 @@ def main():
     print("=" * 56)
     print("  OMNICHAT QUANTIZATION BENCHMARK")
     print("=" * 56)
-    print(f"  Quant levels : {', '.join(QUANT_LABELS[q] for q in quants)}")
+    print(f"  Runs         : {', '.join(run['label'] for run in runs)}")
     print(f"  Temperature  : {args.temperature}")
     print(f"  Voice ref    : {args.voice_ref or 'none'}")
     print(f"  Output       : {bench_dir}")
@@ -74,16 +114,23 @@ def main():
 
     # Run each quantization level in a separate subprocess
     run_results = {}
-    for quant in quants:
-        label = QUANT_LABELS[quant]
+    for run in runs:
+        label = run["label"]
+        quant = run.get("quant", "none")
         quant_dir = bench_dir / label
 
         cmd = [
             PYTHON, "-m", "benchmarks.run_single_quant",
             "--quant", quant,
+            "--label", label,
             "--output-dir", str(quant_dir),
             "--temperature", str(args.temperature),
+            "--max-new-tokens", str(args.max_new_tokens),
         ]
+        if run.get("profile"):
+            cmd.extend(["--model-profile", run["profile"]])
+        if run.get("gemma_mtp"):
+            cmd.extend(["--gemma-mtp", run["gemma_mtp"]])
         if args.voice_ref:
             cmd.extend(["--voice-ref", args.voice_ref])
 

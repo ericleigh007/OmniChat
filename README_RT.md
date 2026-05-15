@@ -4,6 +4,8 @@ Native PySide6 desktop client for OmniChat. Plays audio directly via sounddevice
 
 Same model-profile system, same tools, same settings — just faster audio and a native UI. The desktop client uses the profiles defined in `args/model_profiles.json`, so it is not limited to MiniCPM-only runs.
 
+The RT client has been verified with the Gemma 4 E4B IT + MTP profile (`gemma4_e4b_transformers_mtp_mincpm_tts`). In that mode Gemma handles text, image, audio, and video input, while MiniCPM provides spoken output because Gemma does not generate audio.
+
 ![OmniChat RT Desktop App](media/OmniChat-RT.png)
 
 ## Why a Desktop App?
@@ -46,6 +48,19 @@ launch_rt.bat --quantization int4   # ~11 GB VRAM
 ```
 See [README.md](README.md#quantization) for details, research citations, and important caveats about audio quality under quantization (text chat works fine; audio/speech output is untested and may need adjustments).
 
+To launch a specific model profile:
+
+```bash
+.venv/Scripts/python.exe rt_main.py --model-profile gemma4_e4b_transformers_mtp_mincpm_tts
+```
+
+Useful Gemma profiles:
+
+| Profile | Desktop Behavior |
+|---------|------------------|
+| `gemma4_e4b_transformers_mincpm_tts` | Baseline Gemma input path with MiniCPM streaming TTS for audio-origin turns. |
+| `gemma4_e4b_transformers_mtp_mincpm_tts` | Same app behavior, but Gemma text generation uses the MTP assistant drafter for speculative decoding. |
+
 ## Features
 
 ### Voice Chat
@@ -67,6 +82,8 @@ The state indicator shows the current conversation phase with color-coded dots:
 - **Ready** (orange) — response done, about to resume listening
 
 **Request modality:** Typing in the text box stays text-only. Spoken output is reserved for audio-origin turns such as VAD-completed speech and push-to-talk release, where the model response is streamed into the TTS path.
+
+For Gemma profiles, audio-origin requests are sent to Gemma as native audio input. The response text is then handed to MiniCPM for output audio when a MiniCPM TTS profile is active.
 
 **Voice switching:** Select a voice from the dropdown to use a cloned voice. The status bar confirms the active voice.
 
@@ -214,7 +231,7 @@ cd OmniChat
 # Shared session helper tests
 .venv/Scripts/python.exe -m pytest tests/test_session.py -v
 
-# Full unit test suite (270 tests, ~4s)
+# Full non-GPU unit suite
 .venv/Scripts/python.exe -m pytest tests/ -v -m "not gpu"
 ```
 
@@ -225,6 +242,17 @@ Playback media generation is also covered by a focused regression test:
 ```bash
 .venv/Scripts/python.exe -m pytest tests/test_capture_rt_playback_assets.py -q
 ```
+
+The full app-borne demo test exercises the real PySide6 window, not only backend calls:
+
+```bash
+.venv/Scripts/python.exe outputs/debug/rt_full_demo_probe.py --profile gemma4_e4b_transformers_mtp_mincpm_tts --output-dir demo_outputs/rt_app_full_demo_YYYY-MM-DD
+.venv/Scripts/python.exe -m pytest tests/test_rt_full_demo_live.py -v
+```
+
+The latest run completed all seven app-borne demo acts with `7 passed, 0 failed`, and runtime status confirmed `assistant_loaded: true` plus `last_mtp_used: true`.
+
+The Gemma MTP speed/quality benchmark is documented in [README.md](README.md#gemma-4-mtp-speed-and-quality-benchmark). The current 50-case result was **1.58x faster overall** with no measured rubric-quality loss.
 
 ## Configuration
 

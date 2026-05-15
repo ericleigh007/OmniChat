@@ -141,6 +141,7 @@ class OmniChatWindow(QMainWindow):
         self._active_turn_user_audio = None
         self._active_turn_model_audio_chunks: list[np.ndarray] = []
         self._active_turn_user_audio_offset_s = 0.0
+        self._last_completed_turn: dict = {}
         self._recording_session_started_at = 0.0
         self._last_generation_progress: dict = {}
         self._response_status_phase = "idle"
@@ -1179,40 +1180,52 @@ class OmniChatWindow(QMainWindow):
 
     def _complete_turn_recording(self, *, response_text: str, error: str | None = None, interrupted: bool = False):
         request_id = self._active_request_id
-        if not request_id or self._session_recorder is None:
-            return
-        response_mode = "audio" if self._active_response_is_spoken else "text"
-        progress = dict(self._last_generation_progress or {})
-        elapsed_s = progress.get("elapsed_s")
-        if elapsed_s is None and self._active_turn_started_at:
-            elapsed_s = time.perf_counter() - self._active_turn_started_at
-        if self._recording_keeps_structured_audio():
-            for chunk in self._active_turn_model_audio_chunks:
-                self._session_recorder.append_model_audio(request_id=request_id, audio_chunk=chunk, sample_rate=24000)
-        if self._session_video_recorder is not None and self._active_turn_model_audio_chunks:
-            self._session_video_recorder.add_audio_clip(
-                np.concatenate(self._active_turn_model_audio_chunks).astype(np.float32, copy=False),
-                sample_rate=24000,
+        try:
+            progress = dict(self._last_generation_progress or {})
+            elapsed_s = progress.get("elapsed_s")
+            if elapsed_s is None and self._active_turn_started_at:
+                elapsed_s = time.perf_counter() - self._active_turn_started_at
+            self._last_completed_turn = {
+                "request_id": request_id,
+                "modality": self._active_turn_modality,
+                "response_mode": "audio" if self._active_response_is_spoken else "text",
+                "prompt_text": self._active_turn_prompt_text,
+                "audio_chunks": len(self._active_turn_model_audio_chunks),
+                "elapsed_s": elapsed_s,
+                "text_chars": progress.get("text_chars"),
+                "text_tokens_est": progress.get("text_tokens_est"),
+            }
+            if not request_id or self._session_recorder is None:
+                return
+            response_mode = "audio" if self._active_response_is_spoken else "text"
+            if self._recording_keeps_structured_audio():
+                for chunk in self._active_turn_model_audio_chunks:
+                    self._session_recorder.append_model_audio(request_id=request_id, audio_chunk=chunk, sample_rate=24000)
+            if self._session_video_recorder is not None and self._active_turn_model_audio_chunks:
+                self._session_video_recorder.add_audio_clip(
+                    np.concatenate(self._active_turn_model_audio_chunks).astype(np.float32, copy=False),
+                    sample_rate=24000,
+                )
+            self._session_recorder.complete_turn(
+                request_id=request_id,
+                response_text=response_text,
+                response_mode=response_mode,
+                interrupted=interrupted,
+                error=error,
+                first_text_s=self._active_turn_first_text_s,
+                elapsed_s=elapsed_s,
+                text_chars=progress.get("text_chars"),
+                text_tokens_est=progress.get("text_tokens_est"),
+                audio_chunks=progress.get("audio_chunks"),
             )
-        self._session_recorder.complete_turn(
-            request_id=request_id,
-            response_text=response_text,
-            response_mode=response_mode,
-            interrupted=interrupted,
-            error=error,
-            first_text_s=self._active_turn_first_text_s,
-            elapsed_s=elapsed_s,
-            text_chars=progress.get("text_chars"),
-            text_tokens_est=progress.get("text_tokens_est"),
-            audio_chunks=progress.get("audio_chunks"),
-        )
-        self._active_turn_started_at = 0.0
-        self._active_turn_first_text_s = None
-        self._active_turn_prompt_text = ""
-        self._active_turn_user_audio = None
-        self._active_turn_model_audio_chunks = []
-        self._active_turn_user_audio_offset_s = 0.0
-        self._last_generation_progress = {}
+        finally:
+            self._active_turn_started_at = 0.0
+            self._active_turn_first_text_s = None
+            self._active_turn_prompt_text = ""
+            self._active_turn_user_audio = None
+            self._active_turn_model_audio_chunks = []
+            self._active_turn_user_audio_offset_s = 0.0
+            self._last_generation_progress = {}
 
     def _on_ptt_pressed(self):
         self._pipeline.conv_mgr.ptt_start()

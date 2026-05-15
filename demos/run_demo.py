@@ -46,6 +46,7 @@ class DemoContext:
     strict: bool = False
     output_dir: str = ""
     narrator_voice: Optional[np.ndarray] = None  # voice ref for narrator (distinct from response voice)
+    inference: dict = field(default_factory=dict)
     results: list = field(default_factory=list)
 
 
@@ -157,7 +158,7 @@ def _chat_with_audio(
     ctx: DemoContext,
     output_path: str,
     voice_ref: Optional[np.ndarray] = None,
-    max_new_tokens: int = 2048,
+    max_new_tokens: Optional[int] = None,
 ) -> dict:
     """Generate a response with audio — streaming or file-based depending on ctx.stream.
 
@@ -165,6 +166,13 @@ def _chat_with_audio(
     Without --stream: file-based chat() then _play_audio().
     Returns the same dict either way: {text, audio, audio_path, sample_rate}.
     """
+    max_tokens = max_new_tokens or int(ctx.inference.get("max_new_tokens", 256))
+    temperature = float(ctx.inference.get("temperature", 0.2))
+    repetition_penalty = float(ctx.inference.get("repetition_penalty", 1.05))
+    top_p = float(ctx.inference.get("top_p", 0.9))
+    top_k = int(ctx.inference.get("top_k", 20))
+    enable_thinking = bool(ctx.inference.get("enable_thinking", False))
+
     if ctx.stream:
         from tools.model.model_manager import chat_streaming_with_playback
         return chat_streaming_with_playback(
@@ -172,7 +180,12 @@ def _chat_with_audio(
             voice_ref=voice_ref,
             output_audio_path=output_path,
             headless=ctx.headless or ctx.no_audio,
-            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            max_new_tokens=max_tokens,
+            repetition_penalty=repetition_penalty,
+            top_p=top_p,
+            top_k=top_k,
+            enable_thinking=enable_thinking,
         )
     else:
         from tools.model.model_manager import chat
@@ -181,7 +194,12 @@ def _chat_with_audio(
             voice_ref=voice_ref,
             generate_audio=True,
             output_audio_path=output_path,
-            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            max_new_tokens=max_tokens,
+            repetition_penalty=repetition_penalty,
+            top_p=top_p,
+            top_k=top_k,
+            enable_thinking=enable_thinking,
         )
         if result.get("audio") is not None:
             _play_audio(result["audio"], result.get("sample_rate", 24000), ctx)
@@ -220,6 +238,12 @@ def act_1_text_chat(ctx: DemoContext) -> ActResult:
         result = chat(
             messages=[{"role": "user", "content": [prompt]}],
             generate_audio=False,
+            temperature=float(ctx.inference.get("temperature", 0.2)),
+            max_new_tokens=int(ctx.inference.get("max_new_tokens", 256)),
+            repetition_penalty=float(ctx.inference.get("repetition_penalty", 1.05)),
+            top_p=float(ctx.inference.get("top_p", 0.9)),
+            top_k=int(ctx.inference.get("top_k", 20)),
+            enable_thinking=bool(ctx.inference.get("enable_thinking", False)),
         )
         text = result["text"].strip()
         echo = _is_echo(text, prompt)
@@ -357,6 +381,12 @@ def act_4_vision_image(ctx: DemoContext) -> ActResult:
         ),
         generate_audio=generate_audio,
         output_audio_path=out_wav if generate_audio else None,
+        temperature=float(ctx.inference.get("temperature", 0.2)),
+        max_new_tokens=int(ctx.inference.get("max_new_tokens", 256)),
+        repetition_penalty=float(ctx.inference.get("repetition_penalty", 1.05)),
+        top_p=float(ctx.inference.get("top_p", 0.9)),
+        top_k=int(ctx.inference.get("top_k", 20)),
+        enable_thinking=bool(ctx.inference.get("enable_thinking", False)),
     )
 
     text = result["text"]
@@ -594,22 +624,36 @@ def main():
     parser.add_argument("--acts", default=None, help="Comma-separated act numbers (e.g. 1,3,5)")
     parser.add_argument("--output-dir", default=None, help="Custom output directory")
     parser.add_argument("--voices-dir", default=None, help="Path to voice WAV samples directory")
+    parser.add_argument("--model-profile", default=None, help="Configured model profile id from args/model_profiles.json")
+    parser.add_argument("--list-models", action="store_true", help="List configured model profiles and exit")
+    parser.add_argument("--backend", default=None, choices=["minicpm", "qwen_remote", "qwen_transformers", "gemma_transformers", "qwen_llamacpp", "gemma_llamacpp"],
+                        help="Override configured model backend")
     parser.add_argument("--quantization", default=None, choices=["none", "int8", "int4"],
                         help="Model quantization: none (bf16, ~19GB), int8 (~10-12GB), int4 (~11GB)")
     args = parser.parse_args()
 
+    if args.list_models:
+        from tools.shared.session import list_model_profiles
+        for profile_id, profile in list_model_profiles().items():
+            label = profile.get("display_name", profile_id)
+            backend = profile.get("backend", "minicpm")
+            model_name = profile.get("name", "")
+            print(f"{profile_id}: {label} [{backend}] {model_name}")
+        return
+
     # Configure voices directory (CLI overrides settings.yaml)
-    from tools.shared.session import load_settings
-    settings = load_settings()
+    from tools.shared.session import configure_model_runtime, load_settings
+    settings = load_settings(model_profile=args.model_profile)
 
     from tools.audio.voice_manager import set_voices_dir
     voices_dir = args.voices_dir or settings.get("audio", {}).get("voices_dir", "voices")
     set_voices_dir(voices_dir)
 
-    # Configure quantization (CLI overrides settings.yaml)
-    from tools.model.model_manager import set_quantization
-    quant = args.quantization or settings.get("model", {}).get("quantization", "none")
-    set_quantization(quant)
+    runtime = configure_model_runtime(
+        settings,
+        backend_override=args.backend,
+        quantization_override=args.quantization,
+    )
 
     # Parse act selection
     selected_acts = None
@@ -638,13 +682,15 @@ def main():
         strict=args.strict,
         output_dir=out_dir,
         narrator_voice=narrator_voice,
+        inference=settings.get("inference", {}),
     )
 
     audio_mode = "Streaming" if args.stream else "File-based"
     print("")
     print("=" * 52)
     print("  OMNICHAT LIVE DEMO")
-    print(f"  MiniCPM-o 4.5 Capabilities Showcase")
+    print(f"  Profile: {settings.get('active_model_profile')}")
+    print(f"  Backend: {runtime['backend']}")
     print(f"  Audio mode: {audio_mode}")
     print(f"  Output: {out_dir}")
     print("=" * 52)

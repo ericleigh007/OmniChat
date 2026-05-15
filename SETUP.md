@@ -10,7 +10,7 @@ Step-by-step instructions to get OmniChat running from a fresh clone.
 | **NVIDIA GPU** | 10+ GB VRAM (quantized) or 20+ GB (full precision) |
 | **CUDA** | 12.x with a compatible PyTorch build |
 | **OS** | Windows 11 (tested). Linux should work but is untested. |
-| **Disk space** | ~40 GB for the model (downloaded on first run, cached by HuggingFace) |
+| **Disk space** | Depends on selected profile. MiniCPM is ~40 GB cached by HuggingFace; local Gemma profiles can point at a staged checkpoint on disk. |
 
 Tested on: NVIDIA RTX PRO 6000 Blackwell (96 GB VRAM), Windows 11, Python 3.12.
 
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 ```
 
 This installs:
-- **transformers** (4.51.0) + **accelerate** — HuggingFace model loading
+- **transformers** + **accelerate** — HuggingFace model loading
 - **minicpmo-utils** — MiniCPM-o tokenizer and audio utilities
 - **gradio** — web UI framework
 - **PySide6** — desktop app framework
@@ -83,9 +83,9 @@ This installs:
 - **pyyaml** — settings file parsing
 - **pytest**, **pytest-qt** — testing
 
-## Step 5: Download the Model
+## Step 5: Download or Stage Models
 
-The model downloads automatically on first launch (~40 GB, cached at `~/.cache/huggingface/`). To pre-download it:
+The default MiniCPM model downloads automatically on first launch (~40 GB, cached at `~/.cache/huggingface/`). To pre-download it:
 
 ```bash
 python -c "from huggingface_hub import snapshot_download; snapshot_download('openbmb/MiniCPM-o-4_5', allow_patterns=['*.json', '*.py', '*.safetensors', '*.txt', '*.model'])"
@@ -95,6 +95,8 @@ Or just run setup (creates or reuses `.venv`, installs CUDA PyTorch, installs th
 ```bash
 python setup.py
 ```
+
+Gemma profiles use the checkpoint configured in `args/model_profiles.json`. The checked local profile points at a staged Gemma 4 E4B IT Transformers checkpoint and, for MTP profiles, the assistant checkpoint `google/gemma-4-E4B-it-assistant`. Larger chat-only Gemma-family checkpoints are not a setup priority for OmniChat unless they provide the multimodal and speech-input surface the app needs.
 
 ## Step 6: Apply Gradio Patches (Gradio UI only)
 
@@ -136,8 +138,8 @@ audio:
 
 Or pass it on the command line:
 ```bash
-python main.py --voices-dir /path/to/my/voices
-python rt_main.py --voices-dir /path/to/my/voices
+.venv\Scripts\python.exe main.py --voices-dir /path/to/my/voices
+.venv\Scripts\python.exe rt_main.py --voices-dir /path/to/my/voices
 ```
 
 You can also upload voices through the Settings tab in either app — including extracting a voice from a video file by specifying start time and duration.
@@ -150,7 +152,10 @@ You can also upload voices through the Settings tab in either app — including 
 launch.bat
 
 # Or directly
-python main.py
+.venv\Scripts\python.exe main.py
+
+# Select a profile
+.venv\Scripts\python.exe main.py --model-profile gemma4_e4b_transformers_mtp_mincpm_tts
 ```
 Opens at http://localhost:7860. First launch takes ~30-60 seconds (model loading).
 
@@ -160,7 +165,10 @@ Opens at http://localhost:7860. First launch takes ~30-60 seconds (model loading
 launch_rt.bat
 
 # Or directly
-python rt_main.py
+.venv\Scripts\python.exe rt_main.py
+
+# Select a profile
+.venv\Scripts\python.exe rt_main.py --model-profile gemma4_e4b_transformers_mtp_mincpm_tts
 ```
 A splash screen shows while the model loads, then the main window opens.
 
@@ -172,17 +180,39 @@ launch.bat --quantization int8
 launch_rt.bat --quantization int4
 ```
 
+Useful Gemma profiles:
+
+| Profile | Behavior |
+|---------|----------|
+| `gemma4_e4b_transformers_mincpm_tts` | Baseline Gemma 4 E4B IT for text/image/audio/video input, MiniCPM for spoken output. |
+| `gemma4_e4b_transformers_mtp_mincpm_tts` | Same multimodal app behavior with the MTP assistant drafter enabled for faster Gemma generation. |
+
 ## Step 9: Verify with Tests
 
 ```bash
 # Unit tests (no GPU needed, ~4 seconds)
-python -m pytest tests/ -v -m "not gpu"
+.venv\Scripts\python.exe -m pytest tests/ -v -m "not gpu"
 
 # GPU integration tests (model must be loaded, ~3 minutes)
-python -m pytest tests/test_integration.py -v -s
+.venv\Scripts\python.exe -m pytest tests/test_integration.py -v -s
 ```
 
-All 276 unit tests should pass. The 23 GPU tests require the model to be loaded and a working CUDA setup.
+The non-GPU unit suite should pass without loading a large model. GPU tests require staged model assets and a working CUDA setup.
+
+Focused live checks for the current Gemma MTP path:
+
+```bash
+# Full scripted demo through the demo runner
+.venv\Scripts\python.exe -m pytest tests/test_demo_smoke.py -v -s
+
+# Full PySide6 app-borne demo
+.venv\Scripts\python.exe -m pytest tests/test_rt_full_demo_live.py -v
+
+# Gemma MTP benchmark/report helpers and backend behavior
+.venv\Scripts\python.exe -m pytest tests/test_gemma_mtp_multimodal_benchmark.py tests/test_gemma_transformers_backend.py -v
+```
+
+If Windows blocks pytest temp/cache writes, set `PYTEST_DEBUG_TEMPROOT` to a directory inside the repo and disable the cache provider for that run.
 
 ## Configuration
 
@@ -190,7 +220,7 @@ All settings are in `args/settings.yaml`. Key settings to adjust:
 
 | Setting | Default | What It Does |
 |---------|---------|-------------|
-| `model.name` | `openbmb/MiniCPM-o-4_5` | HuggingFace model ID |
+| `model.name` | Profile-dependent | Model display/name setting |
 | `model.dtype` | `bfloat16` | Model precision (bf16 needs ~19 GB VRAM) |
 | `model.quantization` | `none` | `none` (bf16), `int8` (~10-12 GB), `int4` (~11 GB) |
 | `audio.voices_dir` | `voices` | Path to voice WAV samples |

@@ -30,13 +30,15 @@ class _LocalGemmaHandle:
     checkpoint: str
     device: Any
     dtype: Any
+    assistant_model: Any = None
+    assistant_checkpoint: Optional[str] = None
 
 
 def _require_local_gemma_dependencies():
     try:
         import soundfile as sf
         import torch
-        from transformers import AutoProcessor, Gemma4ForConditionalGeneration
+        from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoProcessor
     except ImportError as exc:
         raise RuntimeError(
             "Local gemma_transformers backend requires transformers>=4.57.3 and soundfile."
@@ -46,7 +48,8 @@ def _require_local_gemma_dependencies():
         "sf": sf,
         "torch": torch,
         "processor_cls": AutoProcessor,
-        "model_cls": Gemma4ForConditionalGeneration,
+        "model_cls": AutoModelForImageTextToText,
+        "assistant_model_cls": AutoModelForCausalLM,
     }
 
 
@@ -66,6 +69,9 @@ class GemmaTransformersBackend(ModelBackend):
             "cuda_device_name": None,
             "cuda_capability": None,
             "checkpoint": None,
+            "mtp_enabled": False,
+            "assistant_checkpoint": None,
+            "assistant_loaded": False,
         }
 
     def get_capabilities(self) -> dict[str, Any]:
@@ -127,6 +133,11 @@ class GemmaTransformersBackend(ModelBackend):
             model_kwargs["attn_implementation"] = resolved_attn_implementation
 
         model = deps["model_cls"].from_pretrained(cfg["checkpoint"], **model_kwargs)
+        assistant_checkpoint = self._resolve_assistant_checkpoint(cfg)
+        assistant_model = None
+        if cfg.get("mtp_enabled"):
+            assistant_model = deps["assistant_model_cls"].from_pretrained(assistant_checkpoint, **model_kwargs)
+            self._configure_assistant_generation(assistant_model, cfg)
         device = self._infer_model_device(model, torch)
         dtype = getattr(model, "dtype", None)
         self._runtime_status.update({
@@ -136,6 +147,9 @@ class GemmaTransformersBackend(ModelBackend):
             "cuda_device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
             "cuda_capability": torch.cuda.get_device_capability(0) if torch.cuda.is_available() else None,
             "checkpoint": cfg.get("checkpoint"),
+            "mtp_enabled": bool(cfg.get("mtp_enabled")),
+            "assistant_checkpoint": assistant_checkpoint if cfg.get("mtp_enabled") else None,
+            "assistant_loaded": assistant_model is not None,
         })
         self._handle = _LocalGemmaHandle(
             model=model,
@@ -143,6 +157,8 @@ class GemmaTransformersBackend(ModelBackend):
             checkpoint=cfg["checkpoint"],
             device=device,
             dtype=dtype,
+            assistant_model=assistant_model,
+            assistant_checkpoint=assistant_checkpoint if cfg.get("mtp_enabled") else None,
         )
         return model, processor
 
@@ -562,6 +578,9 @@ class GemmaTransformersBackend(ModelBackend):
         }
         if temperature > 0:
             generate_kwargs["temperature"] = temperature
+        assistant_model = getattr(handle, "assistant_model", None)
+        if assistant_model is not None:
+            generate_kwargs["assistant_model"] = assistant_model
 
         outputs = handle.model.generate(**inputs, **generate_kwargs)
         decoded = handle.processor.decode(outputs[0][input_length:], skip_special_tokens=False)
@@ -580,8 +599,27 @@ class GemmaTransformersBackend(ModelBackend):
             "last_reasoning_chars": len(reasoning),
             "reasoning_detected": bool(reasoning.strip()),
             "last_n_predict": int(max_new_tokens),
+            "last_mtp_used": assistant_model is not None,
         })
         return {"text": text, "audio": None, "audio_path": None, "sample_rate": None, "reasoning": reasoning}
+
+    def _resolve_assistant_checkpoint(self, cfg: dict[str, Any]) -> str:
+        configured = cfg.get("assistant_checkpoint")
+        if configured:
+            return str(configured)
+        checkpoint = str(cfg["checkpoint"])
+        return checkpoint if checkpoint.endswith("-assistant") else f"{checkpoint}-assistant"
+
+    def _configure_assistant_generation(self, assistant_model: Any, cfg: dict[str, Any]) -> None:
+        generation_config = getattr(assistant_model, "generation_config", None)
+        if generation_config is None:
+            return
+        num_tokens = cfg.get("assistant_num_tokens")
+        if num_tokens is not None:
+            generation_config.num_assistant_tokens = int(num_tokens)
+        schedule = cfg.get("assistant_num_tokens_schedule")
+        if schedule:
+            generation_config.num_assistant_tokens_schedule = str(schedule)
 
     def _normalize_message(self, message: dict[str, Any]) -> dict[str, Any]:
         return {

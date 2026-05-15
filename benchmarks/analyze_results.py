@@ -1,6 +1,6 @@
 """Analyze benchmark results and generate comparison report.
 
-Reads WAV files from each quantization directory, computes audio metrics,
+Reads WAV files from each benchmark run directory, computes audio metrics,
 generates mel spectrogram comparison images, and writes a markdown report.
 
 No GPU needed — runs on CPU only.
@@ -129,7 +129,7 @@ def _write_markdown_report(
 ):
     """Write the comparison report as a markdown file."""
     lines = []
-    lines.append("# OmniChat Quantization Benchmark Report\n")
+    lines.append("# OmniChat Benchmark Report\n")
     lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     # GPU info from first available metadata
@@ -158,12 +158,48 @@ def _write_markdown_report(
             vals.append(str(v))
         lines.append(f"| {display} | " + " | ".join(vals) + " |")
 
+    # ── Generation timing ──
+    timing_by_prompt = {}
+    for label, meta in all_metadata.items():
+        for result in meta.get("results", []):
+            if result.get("skipped") or result.get("error"):
+                continue
+            timing_by_prompt.setdefault(result.get("id", "unknown"), {})[label] = result.get("generation_time_s")
+
+    if timing_by_prompt:
+        lines.append("\n## Generation Timing\n")
+        lines.append("| Prompt | " + " | ".join(labels) + " | Speedup vs first run |")
+        lines.append("|--------|" + "|".join(["--------"] * len(labels)) + "|--------|")
+        total_by_label = {label: 0.0 for label in labels}
+        for pid in sorted(timing_by_prompt.keys()):
+            timings = timing_by_prompt[pid]
+            vals = []
+            for label in labels:
+                value = timings.get(label)
+                if isinstance(value, (int, float)):
+                    total_by_label[label] += float(value)
+                    vals.append(str(value))
+                else:
+                    vals.append("N/A")
+            first = timings.get(labels[0])
+            last = timings.get(labels[-1])
+            speedup = "N/A"
+            if isinstance(first, (int, float)) and isinstance(last, (int, float)) and last:
+                speedup = f"{first / last:.2f}x"
+            lines.append(f"| {pid} | " + " | ".join(vals) + f" | {speedup} |")
+
+        total_vals = [f"{total_by_label[label]:.2f}" for label in labels]
+        first_total = total_by_label[labels[0]]
+        last_total = total_by_label[labels[-1]]
+        total_speedup = f"{first_total / last_total:.2f}x" if last_total else "N/A"
+        lines.append("| **Total** | " + " | ".join(total_vals) + f" | **{total_speedup}** |")
+
     # ── Text responses ──
     lines.append("\n## Text Responses\n")
     for pid in sorted(all_texts.keys()):
         texts_for_pid = all_texts[pid]
         lines.append(f"\n### {pid}\n")
-        lines.append("| Quant | Response (first 300 chars) |")
+        lines.append("| Run | Response (first 300 chars) |")
         lines.append("|-------|---------------------------|")
         for label in labels:
             text = texts_for_pid.get(label, "*not available*")
@@ -229,18 +265,23 @@ def generate_report(bench_dir: Path):
     report_dir.mkdir(parents=True, exist_ok=True)
     spec_dir.mkdir(parents=True, exist_ok=True)
 
-    # Discover quantization directories (in display order)
-    quant_dirs = {}
-    for label in ["bf16", "int8", "int4"]:
+    # Discover benchmark run directories. Keep known historical labels first,
+    # then include variant labels such as gemma4-baseline and gemma4-mtp.
+    run_dirs = {}
+    known_order = ["bf16", "int8", "int4", "gemma4-baseline", "gemma4-mtp"]
+    for label in known_order:
         d = bench_dir / label
         if d.exists() and (d / "metadata.json").exists():
-            quant_dirs[label] = d
+            run_dirs[label] = d
+    for d in sorted(p for p in bench_dir.iterdir() if p.is_dir()):
+        if d.name not in run_dirs and (d / "metadata.json").exists():
+            run_dirs[d.name] = d
 
-    if len(quant_dirs) < 1:
-        print("  ERROR: No valid quantization results found.")
+    if len(run_dirs) < 1:
+        print("  ERROR: No valid benchmark results found.")
         sys.exit(1)
 
-    print(f"  Found results for: {', '.join(quant_dirs.keys())}")
+    print(f"  Found results for: {', '.join(run_dirs.keys())}")
 
     if not HAS_MATPLOTLIB:
         print("  WARNING: matplotlib not installed -- spectrograms will be skipped")
@@ -248,7 +289,7 @@ def generate_report(bench_dir: Path):
 
     # Load metadata
     all_metadata = {}
-    for label, d in quant_dirs.items():
+    for label, d in run_dirs.items():
         with open(d / "metadata.json", encoding="utf-8") as f:
             all_metadata[label] = json.load(f)
 
@@ -257,7 +298,7 @@ def generate_report(bench_dir: Path):
     all_texts = {}     # {prompt_id: {quant_label: text_response}}
     wav_ids = set()
 
-    for label, d in quant_dirs.items():
+    for label, d in run_dirs.items():
         for wav_file in sorted(d.glob("*.wav")):
             pid = wav_file.stem
             if pid.startswith("_raw_"):
@@ -279,7 +320,7 @@ def generate_report(bench_dir: Path):
     # Generate spectrogram comparisons
     for pid in sorted(wav_ids):
         wav_paths = {}
-        for label, d in quant_dirs.items():
+        for label, d in run_dirs.items():
             wav_path = d / f"{pid}.wav"
             if wav_path.exists():
                 wav_paths[label] = wav_path

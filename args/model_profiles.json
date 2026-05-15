@@ -155,6 +155,80 @@
         "notes": "Uses local Gemma 4 E4B IT Transformers inference and streams spoken output through MiniCPM 4.5 TTS."
       }
     },
+    "gemma4_e4b_transformers_mtp_local": {
+      "display_name": "Gemma 4 E4B IT Local (MTP, Transformers, native audio)",
+      "backend": "gemma_transformers",
+      "transport": "local_transformers",
+      "name": "Gemma 4 E4B IT + MTP",
+      "checkpoint": "D:\\OmniChatModels\\gemma4-e4b-it-official\\hf",
+      "device_map": "auto",
+      "torch_dtype": "bfloat16",
+      "attn_implementation": "sdpa",
+      "speech_backend": "none",
+      "use_audio_in_video": true,
+      "video_backend": "pyav",
+      "local_files_only": false,
+      "quantization": "none",
+      "auto_update": false,
+      "mtp_enabled": true,
+      "assistant_checkpoint": "google/gemma-4-E4B-it-assistant",
+      "assistant_num_tokens": 4,
+      "assistant_num_tokens_schedule": "heuristic",
+      "inference": {
+        "temperature": 0.0,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses local Gemma 4 E4B IT with the official MTP assistant drafter for speculative decoding and no separate TTS bridge."
+      }
+    },
+    "gemma4_e4b_transformers_mtp_mincpm_tts": {
+      "display_name": "Gemma 4 E4B IT Local (MTP, Transformers) + MiniCPM 4.5 Streaming TTS",
+      "backend": "gemma_transformers",
+      "transport": "local_transformers",
+      "name": "Gemma 4 E4B IT + MTP",
+      "voice": {
+        "tts_mode": "cloned",
+        "supports_voice_clone": true
+      },
+      "checkpoint": "D:\\OmniChatModels\\gemma4-e4b-it-official\\hf",
+      "device_map": "auto",
+      "torch_dtype": "bfloat16",
+      "attn_implementation": "sdpa",
+      "speech_backend": "minicpm_streaming",
+      "use_audio_in_video": true,
+      "video_backend": "pyav",
+      "local_files_only": false,
+      "quantization": "none",
+      "auto_update": false,
+      "mtp_enabled": true,
+      "assistant_checkpoint": "google/gemma-4-E4B-it-assistant",
+      "assistant_num_tokens": 4,
+      "assistant_num_tokens_schedule": "heuristic",
+      "inference": {
+        "temperature": 0.0,
+        "max_new_tokens": 256,
+        "repetition_penalty": 1.05,
+        "top_p": 0.9,
+        "top_k": 20,
+        "enable_thinking": false
+      },
+      "launcher": {
+        "frontend_scripts": [
+          "launch.bat",
+          "launch_rt.bat"
+        ],
+        "notes": "Uses local Gemma 4 E4B IT with the official MTP assistant drafter for speculative decoding, then streams spoken output through MiniCPM 4.5 TTS."
+      }
+    },
     "qwen35_27b_llamacpp_local": {
       "display_name": "Qwen3.5 27B Q4_K_M Local (llama.cpp, owned, text-only)",
       "backend": "qwen_llamacpp",

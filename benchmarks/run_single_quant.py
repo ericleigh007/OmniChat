@@ -24,7 +24,7 @@ from benchmarks.prompts import (
 )
 
 
-def _run_chat_prompt(prompt_def, output_dir, temperature, voice_ref=None):
+def _run_chat_prompt(prompt_def, output_dir, temperature, max_new_tokens, voice_ref=None):
     """Run a prompt through chat() and save raw outputs.
 
     Returns a result dict with timing, audio info, and success status.
@@ -44,6 +44,7 @@ def _run_chat_prompt(prompt_def, output_dir, temperature, voice_ref=None):
         generate_audio=generate_audio,
         output_audio_path=str(audio_tmp) if audio_tmp else None,
         temperature=temperature,
+        max_new_tokens=max_new_tokens,
     )
     elapsed = time.time() - start
 
@@ -80,7 +81,7 @@ def _run_chat_prompt(prompt_def, output_dir, temperature, voice_ref=None):
     return info
 
 
-def _run_streaming_prompt(prompt_def, output_dir, temperature, voice_ref=None):
+def _run_streaming_prompt(prompt_def, output_dir, temperature, max_new_tokens, voice_ref=None):
     """Run a prompt through chat_streaming() and save raw outputs.
 
     Collects raw audio chunks directly from the streaming generator (no leveling).
@@ -98,6 +99,7 @@ def _run_streaming_prompt(prompt_def, output_dir, temperature, voice_ref=None):
         voice_ref=voice_ref,
         generate_audio=prompt_def["generate_audio"],
         temperature=temperature,
+        max_new_tokens=max_new_tokens,
     ):
         if audio_chunk is not None:
             chunks.append(audio_chunk)
@@ -133,6 +135,21 @@ def _run_streaming_prompt(prompt_def, output_dir, temperature, voice_ref=None):
     return info
 
 
+def _configure_model_from_profile(profile: str | None, *, mtp_enabled: bool | None) -> dict:
+    """Load the selected OmniChat profile into model_manager for benchmark workers."""
+    from tools.shared.session import configure_model_runtime, load_settings
+
+    settings = load_settings(model_profile=profile)
+    model_settings = settings.get("model", {})
+    if mtp_enabled is not None:
+        model_settings = dict(model_settings)
+        model_settings["mtp_enabled"] = bool(mtp_enabled)
+        settings = dict(settings)
+        settings["model"] = model_settings
+    configure_model_runtime(settings)
+    return settings
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run benchmark prompts at a single quantization level"
@@ -140,6 +157,18 @@ def main():
     parser.add_argument(
         "--quant", required=True, choices=["none", "int8", "int4"],
         help="Quantization mode"
+    )
+    parser.add_argument(
+        "--label", default=None,
+        help="Display label for this benchmark run"
+    )
+    parser.add_argument(
+        "--model-profile", default=None,
+        help="Configured model profile id from args/model_profiles.json"
+    )
+    parser.add_argument(
+        "--gemma-mtp", choices=["on", "off"], default=None,
+        help="Override Gemma Transformers MTP assistant usage"
     )
     parser.add_argument(
         "--output-dir", required=True,
@@ -153,12 +182,18 @@ def main():
         "--temperature", type=float, default=0.3,
         help="Sampling temperature (default: 0.3)"
     )
+    parser.add_argument(
+        "--max-new-tokens", type=int, default=256,
+        help="Maximum generated tokens per prompt (default: 256)"
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    quant_label = {"none": "bf16", "int8": "int8", "int4": "int4"}[args.quant]
+    mtp_override = None if args.gemma_mtp is None else args.gemma_mtp == "on"
+    settings = _configure_model_from_profile(args.model_profile, mtp_enabled=mtp_override)
+    quant_label = args.label or {"none": "bf16", "int8": "int8", "int4": "int4"}[args.quant]
     print(f"\n{'='*52}")
     print(f"  BENCHMARK WORKER: {quant_label.upper()}")
     print(f"  Quantization: {args.quant}")
@@ -170,7 +205,12 @@ def main():
     metadata = {
         "quantization": args.quant,
         "quantization_label": quant_label,
+        "model_profile": settings.get("active_model_profile") or settings.get("model_profile"),
+        "model_backend": settings.get("model", {}).get("backend"),
+        "gemma_mtp_enabled": settings.get("model", {}).get("mtp_enabled") if mtp_override is None else mtp_override,
+        "assistant_checkpoint": settings.get("model", {}).get("assistant_checkpoint"),
         "temperature": args.temperature,
+        "max_new_tokens": args.max_new_tokens,
         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
         "gpu_vram_total_gb": round(
             torch.cuda.get_device_properties(0).total_memory / 1024**3, 1
@@ -178,13 +218,16 @@ def main():
     }
 
     # ── Set quantization and load model ──────────────────────────────────
-    from tools.model.model_manager import set_quantization, get_model
+    from tools.model.model_manager import get_backend, get_model, set_quantization
     set_quantization(args.quant)
 
     print(f"Loading model with quantization={args.quant}...")
     load_start = time.time()
     model, tokenizer = get_model()
     load_time = time.time() - load_start
+    backend = get_backend()
+    if hasattr(backend, "get_runtime_status"):
+        metadata["runtime_status_after_load"] = backend.get_runtime_status()
 
     vram_after_load = torch.cuda.memory_allocated() / 1024**3
     metadata["load_time_s"] = round(load_time, 1)
@@ -233,11 +276,12 @@ def main():
 
             if prompt_def.get("use_streaming"):
                 info = _run_streaming_prompt(
-                    prompt_def, output_dir, args.temperature, voice_ref=None
+                    prompt_def, output_dir, args.temperature, args.max_new_tokens, voice_ref=None
                 )
             else:
                 info = _run_chat_prompt(
                     prompt_def, output_dir, args.temperature,
+                    args.max_new_tokens,
                     voice_ref=None,  # Echo prompts use default voice for fair comparison
                 )
             results.append(info)

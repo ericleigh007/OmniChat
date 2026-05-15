@@ -144,3 +144,123 @@ def test_gemma_transformers_process_video_forces_configured_backend(monkeypatch)
     assert captured["videos"] == ["decoded-video"]
     assert captured["videos_kwargs"] == {"video_metadata": [{"fps": 24}], "return_metadata": True}
     assert result["text"] == "video ok"
+
+
+def test_gemma_transformers_uses_assistant_model_when_mtp_enabled(monkeypatch):
+    backend = GemmaTransformersBackend()
+
+    mm.set_gemma_transformers_config(
+        checkpoint="google/gemma-4-E4B-it",
+        speech_backend="none",
+        local_files_only=True,
+        mtp_enabled=True,
+        assistant_checkpoint="google/gemma-4-E4B-it-assistant",
+        assistant_num_tokens=4,
+        assistant_num_tokens_schedule="heuristic",
+    )
+
+    captured_generate_kwargs = {}
+
+    class FakeProcessor:
+        def apply_chat_template(self, conversation, **_kwargs):
+            return "prompt"
+
+        def __call__(self, **_kwargs):
+            return {"input_ids": torch.tensor([[1, 2, 3]], dtype=torch.long)}
+
+        def decode(self, _tokens, skip_special_tokens=False):
+            return "decoded"
+
+        def parse_response(self, _decoded):
+            return {"content": "mtp ok", "thinking": ""}
+
+    class FakeModel:
+        def generate(self, **kwargs):
+            captured_generate_kwargs.update(kwargs)
+            return torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+
+    class FakeAssistant:
+        pass
+
+    class FakeHandle:
+        processor = FakeProcessor()
+        model = FakeModel()
+        assistant_model = FakeAssistant()
+
+    monkeypatch.setattr(backend, "_get_handle", lambda: FakeHandle())
+    monkeypatch.setattr(backend, "_move_inputs", lambda inputs, _handle: inputs)
+    monkeypatch.setattr(backend, "_collect_multimodal_inputs", lambda _conversation, video_backend: ([], [], [], []))
+
+    result = backend.chat(messages=[{"role": "user", "content": "hello"}], generate_audio=False, temperature=0.0)
+
+    assert result["text"] == "mtp ok"
+    assert isinstance(captured_generate_kwargs["assistant_model"], FakeAssistant)
+    assert backend.get_runtime_status()["last_mtp_used"] is True
+
+
+def test_gemma_transformers_loads_and_configures_assistant(monkeypatch):
+    backend = GemmaTransformersBackend()
+
+    mm.set_gemma_transformers_config(
+        checkpoint="google/gemma-4-E4B-it",
+        device_map="auto",
+        torch_dtype="bfloat16",
+        attn_implementation=None,
+        local_files_only=True,
+        mtp_enabled=True,
+        assistant_checkpoint="google/gemma-4-E4B-it-assistant",
+        assistant_num_tokens=5,
+        assistant_num_tokens_schedule="constant",
+    )
+
+    loaded = []
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(checkpoint, **kwargs):
+            loaded.append(("processor", checkpoint, kwargs))
+            return object()
+
+    class FakeGenerationConfig:
+        pass
+
+    class FakeModel:
+        def __init__(self):
+            self.dtype = torch.bfloat16
+            self.generation_config = FakeGenerationConfig()
+
+        @property
+        def device(self):
+            return "cpu"
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(checkpoint, **kwargs):
+            loaded.append(("target", checkpoint, kwargs))
+            return FakeModel()
+
+    class FakeAssistantCls:
+        @staticmethod
+        def from_pretrained(checkpoint, **kwargs):
+            loaded.append(("assistant", checkpoint, kwargs))
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "tools.model.backends.gemma_transformers_backend._require_local_gemma_dependencies",
+        lambda: {
+            "sf": object(),
+            "torch": torch,
+            "processor_cls": FakeProcessorCls,
+            "model_cls": FakeModelCls,
+            "assistant_model_cls": FakeAssistantCls,
+        },
+    )
+
+    backend.get_model()
+    status = backend.get_runtime_status()
+
+    assert ("assistant", "google/gemma-4-E4B-it-assistant", loaded[2][2]) in loaded
+    assert status["assistant_loaded"] is True
+    assert status["assistant_checkpoint"] == "google/gemma-4-E4B-it-assistant"
+    assert backend._handle.assistant_model.generation_config.num_assistant_tokens == 5
+    assert backend._handle.assistant_model.generation_config.num_assistant_tokens_schedule == "constant"

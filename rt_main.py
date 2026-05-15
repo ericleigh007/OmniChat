@@ -23,7 +23,7 @@ from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QFont, QIcon
 
 from tools.shared.debug_trace import get_trace_log_path, get_trace_logger
-from tools.shared.session import list_model_profiles, load_settings
+from tools.shared.session import configure_model_runtime, list_model_profiles, load_settings
 
 
 def _console_startup(message: str) -> None:
@@ -120,81 +120,14 @@ def main():
     set_voices_dir(voices_dir)
 
     # Configure model loading (CLI overrides settings.yaml)
-    from tools.model.model_manager import (
-        set_quantization,
-        set_auto_update,
-        set_backend,
-        set_gemma_llamacpp_config,
-        set_gemma_transformers_config,
-        set_qwen_llamacpp_config,
-        set_qwen_remote_config,
-        set_qwen_transformers_config,
-    )
     model_settings = settings.get("model", {})
-    backend = args.backend or model_settings.get("backend", "minicpm")
-    set_backend(backend)
-    quant = args.quantization or model_settings.get("quantization", "none")
-    set_quantization(quant)
-    auto_update = model_settings.get("auto_update", True)
-    set_auto_update(auto_update)
-    if backend == "qwen_remote":
-        remote = model_settings.get("remote", {})
-        set_qwen_remote_config(
-            base_url=remote.get("base_url"),
-            api_key=remote.get("api_key"),
-            model_name=remote.get("model_name"),
-            timeout_s=remote.get("timeout_s"),
-            endpoints=remote.get("endpoints"),
-        )
-    elif backend == "qwen_transformers":
-        set_qwen_transformers_config(
-            checkpoint=model_settings.get("name"),
-            device_map=model_settings.get("device_map"),
-            torch_dtype=model_settings.get("torch_dtype"),
-            attn_implementation=model_settings.get("attn_implementation"),
-            speaker=model_settings.get("speaker"),
-            use_audio_in_video=model_settings.get("use_audio_in_video"),
-            local_files_only=model_settings.get("local_files_only", not auto_update),
-        )
-    elif backend == "gemma_transformers":
-        set_gemma_transformers_config(
-            checkpoint=model_settings.get("checkpoint"),
-            device_map=model_settings.get("device_map"),
-            torch_dtype=model_settings.get("torch_dtype"),
-            attn_implementation=model_settings.get("attn_implementation"),
-            speech_backend=model_settings.get("speech_backend"),
-            use_audio_in_video=model_settings.get("use_audio_in_video"),
-            local_files_only=model_settings.get("local_files_only", not auto_update),
-            video_backend=model_settings.get("video_backend"),
-        )
-    elif backend == "qwen_llamacpp":
-        llama_cpp = model_settings.get("llama_cpp", {})
-        set_qwen_llamacpp_config(
-            name=model_settings.get("name"),
-            llama_root=llama_cpp.get("llama_root"),
-            cli_path=llama_cpp.get("cli_path"),
-            model_path=llama_cpp.get("model_path"),
-            mmproj_path=llama_cpp.get("mmproj_path"),
-            n_gpu_layers=llama_cpp.get("n_gpu_layers"),
-            flash_attn=llama_cpp.get("flash_attn"),
-            context_length=llama_cpp.get("context_length"),
-            use_jinja=llama_cpp.get("use_jinja"),
-            speech_backend=llama_cpp.get("speech_backend"),
-        )
-    elif backend == "gemma_llamacpp":
-        llama_cpp = model_settings.get("llama_cpp", {})
-        set_gemma_llamacpp_config(
-            name=model_settings.get("name"),
-            llama_root=llama_cpp.get("llama_root"),
-            cli_path=llama_cpp.get("cli_path"),
-            model_path=llama_cpp.get("model_path"),
-            mmproj_path=llama_cpp.get("mmproj_path"),
-            n_gpu_layers=llama_cpp.get("n_gpu_layers"),
-            flash_attn=llama_cpp.get("flash_attn"),
-            context_length=llama_cpp.get("context_length"),
-            use_jinja=llama_cpp.get("use_jinja"),
-            speech_backend=llama_cpp.get("speech_backend"),
-        )
+    runtime = configure_model_runtime(
+        settings,
+        backend_override=args.backend,
+        quantization_override=args.quantization,
+    )
+    backend = runtime["backend"]
+    quant = runtime["quantization"]
     _console_startup(
         f"Configured backend={backend} quantization={quant} model={model_settings.get('display_name') or model_settings.get('name', 'unknown')}."
     )

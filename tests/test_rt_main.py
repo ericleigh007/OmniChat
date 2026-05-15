@@ -253,6 +253,10 @@ def test_rt_main_smoke_starts_selected_profile(monkeypatch, profile_id, resolved
             "use_audio_in_video": resolved_settings["model"].get("use_audio_in_video"),
             "local_files_only": resolved_settings["model"].get("local_files_only", not resolved_settings["model"].get("auto_update", True)),
             "video_backend": resolved_settings["model"].get("video_backend"),
+            "mtp_enabled": resolved_settings["model"].get("mtp_enabled"),
+            "assistant_checkpoint": resolved_settings["model"].get("assistant_checkpoint"),
+            "assistant_num_tokens": resolved_settings["model"].get("assistant_num_tokens"),
+            "assistant_num_tokens_schedule": resolved_settings["model"].get("assistant_num_tokens_schedule"),
         }]
     else:
         assert calls["set_gemma_transformers_config"] == []
@@ -331,6 +335,10 @@ def test_rt_main_uses_default_gemma_profile_without_cli_override(monkeypatch):
             "use_audio_in_video": True,
             "video_backend": "pyav",
             "local_files_only": True,
+            "mtp_enabled": False,
+            "assistant_checkpoint": None,
+            "assistant_num_tokens": None,
+            "assistant_num_tokens_schedule": "heuristic",
         },
     }
 
@@ -370,6 +378,10 @@ def test_rt_main_uses_default_gemma_profile_without_cli_override(monkeypatch):
         "use_audio_in_video": True,
         "video_backend": "pyav",
         "local_files_only": True,
+        "mtp_enabled": False,
+        "assistant_checkpoint": None,
+        "assistant_num_tokens": None,
+        "assistant_num_tokens_schedule": "heuristic",
     }]
     assert FakeLoader.instances[-1].backend == "gemma_transformers"
     assert FakeLoader.instances[-1].model_label == "Gemma 4 E4B IT Local + MiniCPM TTS"

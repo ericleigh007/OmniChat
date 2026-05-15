@@ -19,6 +19,8 @@ import numpy as np
 import gradio as gr
 
 from tools.shared.session import (
+    configure_model_runtime,
+    list_model_profiles,
     load_settings,
     detect_voice_command,
     normalize_audio_input,
@@ -1546,23 +1548,37 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="OmniChat — Multimodal voice assistant (Gradio)")
     parser.add_argument("--voices-dir", default=None, help="Path to voice WAV samples directory")
+    parser.add_argument("--model-profile", default=None, help="Configured model profile id from args/model_profiles.json")
+    parser.add_argument("--list-models", action="store_true", help="List configured model profiles and exit")
+    parser.add_argument("--backend", default=None, choices=["minicpm", "qwen_remote", "qwen_transformers", "gemma_transformers", "qwen_llamacpp", "gemma_llamacpp"],
+                        help="Override configured model backend")
     parser.add_argument("--quantization", default=None, choices=["none", "int8", "int4"],
                         help="Model quantization: none (bf16, ~19GB), int8 (~10-12GB), int4 (~11GB)")
     args = parser.parse_args()
 
-    settings = load_settings()
+    if args.list_models:
+        for profile_id, profile in list_model_profiles().items():
+            label = profile.get("display_name", profile_id)
+            backend = profile.get("backend", "minicpm")
+            model_name = profile.get("name", "")
+            print(f"{profile_id}: {label} [{backend}] {model_name}")
+        return
+
+    settings = load_settings(model_profile=args.model_profile)
 
     # Configure voices directory (CLI overrides settings.yaml)
     from tools.audio.voice_manager import set_voices_dir
     voices_dir = args.voices_dir or settings.get("audio", {}).get("voices_dir", "voices")
     set_voices_dir(voices_dir)
 
-    # Configure quantization (CLI overrides settings.yaml)
-    from tools.model.model_manager import set_quantization, get_model
-    quant = args.quantization or settings.get("model", {}).get("quantization", "none")
-    set_quantization(quant)
+    runtime = configure_model_runtime(
+        settings,
+        backend_override=args.backend,
+        quantization_override=args.quantization,
+    )
+    from tools.model.model_manager import get_model
 
-    print("Loading model (this may take a minute on first run)...")
+    print(f"Loading model (backend={runtime['backend']}, profile={settings.get('active_model_profile')})...")
     get_model()  # Pre-load so it's ready when the UI starts
 
     print("Building Gradio UI...")

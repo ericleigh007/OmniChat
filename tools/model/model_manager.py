@@ -25,6 +25,7 @@ from tools.shared.debug_trace import get_trace_logger
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 MODEL_NAME = "openbmb/MiniCPM-o-4_5"
+MINICPM_COMPAT_REVISION = "44151b35f1b232a280bda5a87ea1a7575d5433fc"
 
 _QWEN_REMOTE_DEFAULTS = {
     "base_url": "http://127.0.0.1:8000/v1",
@@ -62,6 +63,10 @@ _GEMMA_TRANSFORMERS_DEFAULTS = {
     "local_files_only": False,
     "use_audio_in_video": True,
     "video_backend": "pyav",
+    "mtp_enabled": False,
+    "assistant_checkpoint": None,
+    "assistant_num_tokens": None,
+    "assistant_num_tokens_schedule": "heuristic",
 }
 
 _QWEN_LLAMACPP_DEFAULTS = {
@@ -429,6 +434,10 @@ def set_gemma_transformers_config(
     use_audio_in_video: Optional[bool] = None,
     local_files_only: Optional[bool] = None,
     video_backend: Optional[str] = None,
+    mtp_enabled: Optional[bool] = None,
+    assistant_checkpoint: Optional[str] = None,
+    assistant_num_tokens: Optional[int] = None,
+    assistant_num_tokens_schedule: Optional[str] = None,
 ) -> None:
     """Configure the local Gemma Transformers backend before model load."""
     global _backend
@@ -447,6 +456,14 @@ def set_gemma_transformers_config(
         _gemma_transformers_config["local_files_only"] = bool(local_files_only)
     if video_backend is not None:
         _gemma_transformers_config["video_backend"] = video_backend
+    if mtp_enabled is not None:
+        _gemma_transformers_config["mtp_enabled"] = bool(mtp_enabled)
+    if assistant_checkpoint is not None:
+        _gemma_transformers_config["assistant_checkpoint"] = assistant_checkpoint or None
+    if assistant_num_tokens is not None:
+        _gemma_transformers_config["assistant_num_tokens"] = int(assistant_num_tokens)
+    if assistant_num_tokens_schedule is not None:
+        _gemma_transformers_config["assistant_num_tokens_schedule"] = assistant_num_tokens_schedule
 
     if attn_implementation is not None or attn_implementation is None:
         _gemma_transformers_config["attn_implementation"] = attn_implementation
@@ -561,6 +578,21 @@ def get_gemma_llamacpp_config() -> dict:
 def _build_minicpm_tts_prompt(text: str) -> str:
     spoken_text = (text or "").strip()
     return f"Speak this exactly, but convert any numbers to the words that represent them: {spoken_text}"
+
+
+def _get_minicpm_processor_source() -> str:
+    snapshot = (
+        Path.home()
+        / ".cache"
+        / "huggingface"
+        / "hub"
+        / "models--openbmb--MiniCPM-o-4_5"
+        / "snapshots"
+        / MINICPM_COMPAT_REVISION
+    )
+    if snapshot.exists():
+        return str(snapshot)
+    return MODEL_NAME
 
 
 def stream_text_to_speech_with_minicpm(
@@ -798,6 +830,8 @@ def _dynamic_cache_set_tensors(cache, attr_name: str, tensors) -> None:
 
 def _patch_transformers_minicpm_compat() -> None:
     """Restore older cache/attention APIs expected by MiniCPM remote code."""
+    from transformers import AutoProcessor
+    from transformers.processing_utils import ProcessorMixin
     from transformers.cache_utils import DynamicCache
     from transformers.cache_utils import EncoderDecoderCache
     from transformers.models.llama.configuration_llama import LlamaConfig
@@ -872,6 +906,38 @@ def _patch_transformers_minicpm_compat() -> None:
         _compat_forward._omnichat_minicpm_compat = True  # type: ignore[attr-defined]
         WhisperAttention.forward = _compat_forward
 
+    original_processor_from_pretrained = getattr(AutoProcessor.from_pretrained, "__func__", AutoProcessor.from_pretrained)
+    if not getattr(original_processor_from_pretrained, "_omnichat_minicpm_local_processor", False):
+
+        @classmethod
+        def _compat_processor_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            if str(pretrained_model_name_or_path) == MODEL_NAME:
+                pretrained_model_name_or_path = _get_minicpm_processor_source()
+            if str(pretrained_model_name_or_path) == MODEL_NAME and "local_files_only" not in kwargs:
+                kwargs["local_files_only"] = True
+            return original_processor_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+        _compat_processor_from_pretrained.__func__._omnichat_minicpm_local_processor = True  # type: ignore[attr-defined]
+        AutoProcessor.from_pretrained = _compat_processor_from_pretrained
+
+    original_processing_mixin_from_pretrained = getattr(
+        ProcessorMixin.from_pretrained,
+        "__func__",
+        ProcessorMixin.from_pretrained,
+    )
+    if not getattr(original_processing_mixin_from_pretrained, "_omnichat_minicpm_local_processor", False):
+
+        @classmethod
+        def _compat_processing_mixin_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            if str(pretrained_model_name_or_path) == MODEL_NAME:
+                pretrained_model_name_or_path = _get_minicpm_processor_source()
+            if str(pretrained_model_name_or_path) == MODEL_NAME and "local_files_only" not in kwargs:
+                kwargs["local_files_only"] = True
+            return original_processing_mixin_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+        _compat_processing_mixin_from_pretrained.__func__._omnichat_minicpm_local_processor = True  # type: ignore[attr-defined]
+        ProcessorMixin.from_pretrained = _compat_processing_mixin_from_pretrained
+
 
 def _ensure_minicpm_tts_sampling_defaults(config) -> None:
     """Restore TTS sampling defaults expected by MiniCPM remote code."""
@@ -939,7 +1005,7 @@ def _patch_minicpm_model_class_compat(model_name: str, config) -> None:
 
     from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
-    model_class = get_class_from_dynamic_module(class_ref, model_name)
+    model_class = get_class_from_dynamic_module(class_ref, model_name, revision=MINICPM_COMPAT_REVISION)
     if not hasattr(model_class, "all_tied_weights_keys"):
         model_class.all_tied_weights_keys = {}
     if not hasattr(model_class, "_tied_weights_keys"):
@@ -1015,14 +1081,16 @@ def _get_minicpm_model():
     _local_only = not _auto_update
 
     _tokenizer = AutoTokenizer.from_pretrained(
-        model_name, trust_remote_code=True, local_files_only=_local_only
+        model_name, trust_remote_code=True, local_files_only=_local_only, revision=MINICPM_COMPAT_REVISION
     )
 
     config = AutoConfig.from_pretrained(
         model_name,
         trust_remote_code=True,
         local_files_only=_local_only,
+        revision=MINICPM_COMPAT_REVISION,
     )
+    config._name_or_path = _get_minicpm_processor_source()
     _ensure_minicpm_tts_sampling_defaults(config)
     _patch_minicpm_model_class_compat(model_name, config)
 
@@ -1035,6 +1103,7 @@ def _get_minicpm_model():
         "init_audio": True,
         "init_tts": True,
         "local_files_only": _local_only,
+        "revision": MINICPM_COMPAT_REVISION,
     }
 
     if _quantization == "int8":

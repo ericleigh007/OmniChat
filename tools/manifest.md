@@ -7,7 +7,8 @@ Always check this file before writing a new script — a tool may already exist.
 
 | Script | Description |
 |--------|-------------|
-| `model_manager.py` | Singleton loader for MiniCPM-o 4.5; exposes `chat()`, `chat_streaming()`, `chat_streaming_with_playback()`, `process_image()`, `process_video()`. Supports file-based and streaming audio output |
+| `model_manager.py` | Singleton model manager and backend router for MiniCPM, Qwen, Gemma, and llama.cpp profiles; exposes `chat()`, `chat_streaming()`, `chat_streaming_with_playback()`, `process_image()`, and `process_video()`. |
+| `backends/gemma_transformers_backend.py` | Gemma 4 E4B IT local Transformers backend with native text/image/audio/video input, optional MTP assistant drafter, and optional MiniCPM streaming TTS bridge for spoken output. |
 
 ## Audio (`tools/audio/`)
 
@@ -22,7 +23,7 @@ Always check this file before writing a new script — a tool may already exist.
 
 | Script | Description |
 |--------|-------------|
-| `session.py` | Shared helpers for both Gradio and PySide6 apps — settings loader, voice command detection, audio normalization, voice ref truncation |
+| `session.py` | Shared helpers for both Gradio and PySide6 apps — settings loader, model profile runtime configuration, voice command detection, audio normalization, voice ref truncation |
 
 ## Vision (`tools/vision/`)
 
@@ -57,6 +58,8 @@ Always check this file before writing a new script — a tool may already exist.
 | `test_vad_integration.py` | Real Silero-VAD tests — model loading, speech detection, conversation flow, Gradio mic simulation, audio normalization |
 | `test_pdf_processor.py` | PDF rendering (real tiny PDFs) and OCR aggregation (mocked model) |
 | `test_demo_smoke.py` | Pytest wrapper — runs full demo in headless mode as regression test |
+| `test_rt_full_demo_live.py` | GPU live test — drives the real PySide6 app through the full app-borne demo probe |
+| `test_gemma_mtp_multimodal_benchmark.py` | Tests Gemma MTP benchmark case generation, report writing, and deterministic quality evaluation |
 
 ## Benchmarks (`benchmarks/`)
 
@@ -65,6 +68,8 @@ Always check this file before writing a new script — a tool may already exist.
 | `run_benchmark.py` | Orchestrator — spawns one subprocess per quantization level, then generates comparison report |
 | `run_single_quant.py` | Worker — loads model at specified quantization, runs all prompts, saves raw (pre-leveling) text and WAV outputs |
 | `analyze_results.py` | Post-processor — computes audio metrics (RMS, spectral centroid, ZCR), generates mel spectrogram comparisons, writes markdown report |
+| `gemma_mtp_multimodal.py` | 50-case old Gemma versus Gemma+MTP multimodal speed benchmark with raw outputs and README-ready reports |
+| `evaluate_gemma_mtp_quality.py` | Deterministic rubric scorer for saved Gemma MTP benchmark outputs; writes quality and combined speed/quality reports |
 | `prompts.py` | Fixed prompt definitions for benchmark reproducibility (echo + free prompts) |
 | `benchmark.bat` | Windows launcher for the benchmark suite |
 
